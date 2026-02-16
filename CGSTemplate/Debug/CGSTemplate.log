@@ -1,0 +1,23 @@
+﻿  main.cpp
+C:\Users\Ryan Curphey\OneDrive\Documents\VS Projects\RotatingCube - Copy\CGSTemplate\MathEq.h(47,9): warning C4838: conversion from 'double' to 'float' requires a narrowing conversion
+C:\Users\Ryan Curphey\OneDrive\Documents\VS Projects\RotatingCube - Copy\CGSTemplate\MathEq.h(47,9): warning C4244: 'initializing': conversion from 'double' to 'float', possible loss of data
+C:\Users\Ryan Curphey\OneDrive\Documents\VS Projects\RotatingCube - Copy\CGSTemplate\MathEq.h(48,11): warning C4838: conversion from 'double' to 'float' requires a narrowing conversion
+C:\Users\Ryan Curphey\OneDrive\Documents\VS Projects\RotatingCube - Copy\CGSTemplate\MathEq.h(48,11): warning C4244: 'initializing': conversion from 'double' to 'float', possible loss of data
+C:\Users\Ryan Curphey\OneDrive\Documents\VS Projects\RotatingCube - Copy\CGSTemplate\MathEq.h(83,18): warning C4244: 'initializing': conversion from 'double' to 'float', possible loss of data
+C:\Users\Ryan Curphey\OneDrive\Documents\VS Projects\RotatingCube - Copy\CGSTemplate\RasterHelper.h(66,46): warning C4244: 'argument': conversion from 'float' to 'int', possible loss of data
+C:\Users\Ryan Curphey\OneDrive\Documents\VS Projects\RotatingCube - Copy\CGSTemplate\RasterHelper.h(77,13): warning C4244: 'initializing': conversion from 'float' to 'int', possible loss of data
+C:\Users\Ryan Curphey\OneDrive\Documents\VS Projects\RotatingCube - Copy\CGSTemplate\RasterHelper.h(79,14): warning C4244: 'initializing': conversion from 'float' to 'int', possible loss of data
+C:\Users\Ryan Curphey\OneDrive\Documents\VS Projects\RotatingCube - Copy\CGSTemplate\RasterHelper.h(81,35): warning C4244: 'argument': conversion from 'int' to 'float', possible loss of data
+C:\Users\Ryan Curphey\OneDrive\Documents\VS Projects\RotatingCube - Copy\CGSTemplate\RasterHelper.h(81,32): warning C4244: 'argument': conversion from 'int' to 'float', possible loss of data
+C:\Users\Ryan Curphey\OneDrive\Documents\VS Projects\RotatingCube - Copy\CGSTemplate\RasterHelper.h(98,8): warning C4244: 'initializing': conversion from 'float' to 'int', possible loss of data
+C:\Users\Ryan Curphey\OneDrive\Documents\VS Projects\RotatingCube - Copy\CGSTemplate\RasterHelper.h(99,8): warning C4244: 'initializing': conversion from 'float' to 'int', possible loss of data
+C:\Users\Ryan Curphey\OneDrive\Documents\VS Projects\RotatingCube - Copy\CGSTemplate\RasterHelper.h(101,14): warning C4244: '=': conversion from 'int' to 'float', possible loss of data
+C:\Users\Ryan Curphey\OneDrive\Documents\VS Projects\RotatingCube - Copy\CGSTemplate\RasterHelper.h(102,14): warning C4244: '=': conversion from 'int' to 'float', possible loss of data
+C:\Users\Ryan Curphey\OneDrive\Documents\VS Projects\RotatingCube - Copy\CGSTemplate\RasterHelper.h(123,46): warning C4244: 'argument': conversion from 'unsigned int' to 'float', possible loss of data
+C:\Users\Ryan Curphey\OneDrive\Documents\VS Projects\RotatingCube - Copy\CGSTemplate\main.cpp(83,35): warning C4244: '+=': conversion from 'double' to 'float', possible loss of data
+  RasterSurface.cpp
+C:\Users\Ryan Curphey\OneDrive\Documents\VS Projects\RotatingCube - Copy\CGSTemplate\RasterSurface.cpp(110,29): warning C4838: conversion from 'unsigned int' to 'LONG' requires a narrowing conversion
+C:\Users\Ryan Curphey\OneDrive\Documents\VS Projects\RotatingCube - Copy\CGSTemplate\RasterSurface.cpp(110,37): warning C4838: conversion from 'unsigned int' to 'LONG' requires a narrowing conversion
+  XTime.cpp
+  Generating Code...
+  CGSTemplate.vcxproj -> C:\Users\Ryan Curphey\OneDrive\Documents\VS Projects\RotatingCube - Copy\Debug\CGSTemplate.exe
