@@ -17,3 +17,9 @@ bool RS_Update(	_In_reads_(_numPixels) const unsigned int *_xrgbPixels,
 
 // Deallocates the RasterSurface and cleans up any leftover memory.
 bool RS_Shutdown();
+
+// Get the window handle (for input handling)
+void* RS_GetWindowHandle();
+
+// Get and reset scroll wheel delta (positive = scroll up, negative = scroll down)
+int RS_GetScrollDelta();

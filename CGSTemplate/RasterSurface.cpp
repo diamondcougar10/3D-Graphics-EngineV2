@@ -23,7 +23,8 @@ unsigned int					bitmapHeight = 0;
 std::mutex						bitmapMutex;
 std::condition_variable			bitmapRedraw;
 std::future<unsigned int*>		bitmapAllocator;
-std::atomic_bool				bitmapPresent; 
+std::atomic_bool				bitmapPresent;
+std::atomic_int					scrollWheelDelta = 0; 
 
 // Handles all windows messages (Messages may arrive cross-thread without a valid HWND)
 // hWnd may be set artifically due to cross-thread message posting (NULL HWNDs are ignored)
@@ -31,6 +32,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
 	switch (message)
 	{
+	case WM_MOUSEWHEEL:
+		{
+			int delta = GET_WHEEL_DELTA_WPARAM(wParam);
+			scrollWheelDelta += delta / WHEEL_DELTA; // Normalize to notches
+			break;
+		}
 	case (WM_DESTROY) :
 		{
 			windowClosed = true; // window closing, updates disabled
@@ -216,6 +223,20 @@ bool RS_Shutdown()
 	bitmap = nullptr;
 	return true;
 }
+
+// Get the window handle for input handling
+void* RS_GetWindowHandle()
+{
+	return (void*)window;
+}
+
+// Get and reset scroll wheel delta
+int RS_GetScrollDelta()
+{
+	int delta = scrollWheelDelta.exchange(0);
+	return delta;
+}
+
 // Handles unexpected termination of the console window.
 BOOL WINAPI ConsoleCtrlHandler(DWORD ctrlCode) 
 {

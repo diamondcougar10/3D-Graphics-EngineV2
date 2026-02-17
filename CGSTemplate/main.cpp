@@ -162,7 +162,14 @@ int main() {
     float camYaw = 0.0f;     // Rotation around Y axis (left/right)
     float camPitch = -15.0f; // Rotation around X axis (up/down)
     float moveSpeed = 2.0f;  // Units per second
-    float turnSpeed = 60.0f; // Degrees per second
+    float lookSensitivity = 0.2f;  // Degrees per pixel of mouse movement
+    float panSensitivity = 0.005f; // Units per pixel of mouse movement
+    float scrollSpeed = 0.5f;      // Units per scroll notch
+    
+    // ===== MOUSE STATE =====
+    POINT lastMousePos = { 0, 0 };
+    GetCursorPos(&lastMousePos);
+    bool firstFrame = true;
 
     // Define vertices for the cube with UV coordinates
     vertex topLeftFrontVert({ -0.25, 0.25, -0.25, 1 }, 0xFFFF0000, 0.0f, 0.0f);
@@ -178,7 +185,7 @@ int main() {
     SV_ProjectionMatrix = projectionMatrixMath(90.0f, (float)RASTER_HEIGHT / RASTER_WIDTH, 100.0f, 0.1f);
 
     // Initialize the raster surface
-    RS_Initialize("3D Engine - WASD to move, Arrows to look", RASTER_WIDTH, RASTER_HEIGHT);
+    RS_Initialize("3D Engine - RMB=Look, MMB=Pan, Scroll=Zoom, WASD=Move", RASTER_WIDTH, RASTER_HEIGHT);
     
     // Try to initialize GPU compute
     if (useGPU) {
@@ -187,7 +194,8 @@ int main() {
             useGPU = false;
         } else {
             std::cout << "Using GPU compute shader for rasterization!\n";
-            std::cout << "Controls: WASD = Move, Arrow Keys = Look, Q/E = Up/Down\n";
+            std::cout << "Controls: Right-click+drag = Look, Middle-click+drag = Pan\n";
+            std::cout << "          Scroll wheel = Zoom, WASD = Fly, Q/E = Up/Down\n";
         }
     }
 
@@ -208,12 +216,61 @@ int main() {
             cube = matrixRotationY(cube, 1.5f);  // 1.5 degrees per frame (~60fps = 90 deg/sec)
         }
         
-        // ===== CAMERA INPUT =====
-        // Look controls (arrow keys)
-        if (GetAsyncKeyState(VK_LEFT) & 0x8000)  camYaw -= turnSpeed * deltaTime;
-        if (GetAsyncKeyState(VK_RIGHT) & 0x8000) camYaw += turnSpeed * deltaTime;
-        if (GetAsyncKeyState(VK_UP) & 0x8000)    camPitch -= turnSpeed * deltaTime;
-        if (GetAsyncKeyState(VK_DOWN) & 0x8000)  camPitch += turnSpeed * deltaTime;
+        // ===== MOUSE CAMERA INPUT (Unity-style) =====
+        POINT currentMousePos;
+        GetCursorPos(&currentMousePos);
+        
+        // Calculate mouse delta
+        int mouseDeltaX = 0, mouseDeltaY = 0;
+        if (!firstFrame) {
+            mouseDeltaX = currentMousePos.x - lastMousePos.x;
+            mouseDeltaY = currentMousePos.y - lastMousePos.y;
+        }
+        firstFrame = false;
+        lastMousePos = currentMousePos;
+        
+        // Check if our window is focused
+        HWND ourWindow = (HWND)RS_GetWindowHandle();
+        bool windowFocused = (GetForegroundWindow() == ourWindow);
+        
+        if (windowFocused) {
+            // Right-click + drag = Look around (rotate camera)
+            if (GetAsyncKeyState(VK_RBUTTON) & 0x8000) {
+                camYaw += mouseDeltaX * lookSensitivity;
+                camPitch += mouseDeltaY * lookSensitivity;
+            }
+            
+            // Middle-click + drag = Pan (move camera sideways/up-down)
+            if (GetAsyncKeyState(VK_MBUTTON) & 0x8000) {
+                // Calculate right and up vectors based on current rotation
+                float yawRad = camYaw * 3.14159f / 180.0f;
+                float rightX = cosf(yawRad);
+                float rightZ = -sinf(yawRad);
+                
+                // Pan horizontally (along right vector)
+                camX -= rightX * mouseDeltaX * panSensitivity;
+                camZ -= rightZ * mouseDeltaX * panSensitivity;
+                
+                // Pan vertically (along world up)
+                camY += mouseDeltaY * panSensitivity;
+            }
+            
+            // Scroll wheel = Zoom (dolly forward/backward)
+            int scrollDelta = RS_GetScrollDelta();
+            if (scrollDelta != 0) {
+                float yawRad = camYaw * 3.14159f / 180.0f;
+                float pitchRad = camPitch * 3.14159f / 180.0f;
+                
+                // Move along view direction
+                float forwardX = sinf(yawRad) * cosf(pitchRad);
+                float forwardY = -sinf(pitchRad);
+                float forwardZ = cosf(yawRad) * cosf(pitchRad);
+                
+                camX += forwardX * scrollDelta * scrollSpeed;
+                camY += forwardY * scrollDelta * scrollSpeed;
+                camZ += forwardZ * scrollDelta * scrollSpeed;
+            }
+        }
         
         // Clamp pitch to prevent flipping
         if (camPitch > 89.0f) camPitch = 89.0f;
@@ -226,7 +283,7 @@ int main() {
         float rightX = cosf(yawRad);
         float rightZ = -sinf(yawRad);
         
-        // Movement controls (WASD)
+        // WASD movement (fly mode, works alongside mouse)
         if (GetAsyncKeyState('W') & 0x8000) {
             camX += forwardX * moveSpeed * deltaTime;
             camZ += forwardZ * moveSpeed * deltaTime;
