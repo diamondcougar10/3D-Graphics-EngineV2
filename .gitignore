@@ -1,0 +1,38 @@
+# Visual Studio folders
+.vs/
+Debug/
+Release/
+x64/
+x86/
+ipch/
+
+# Build outputs
+*.exe
+*.dll
+*.obj
+*.pdb
+*.ilk
+*.iobj
+*.ipdb
+*.pch
+*.ipch
+*.log
+*.tlog
+*.lastbuildstate
+*.idb
+*.exp
+*.lib
+
+# User-specific files
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# VS Code
+.vscode/
+
+# Temporary files
+*.tmp
+*.temp
+~$*
