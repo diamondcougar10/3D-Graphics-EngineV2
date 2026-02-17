@@ -138,8 +138,16 @@ unsigned sampleTexture(const unsigned* texture, int texWidth, int texHeight, flo
 	int x = static_cast<int>(u * (texWidth - 1));
 	int y = static_cast<int>(v * (texHeight - 1));
 
-	// Sample color from texture
-	return texture[y * texWidth + x];
+	// Sample color from texture (BGRA format)
+	unsigned int bgra = texture[y * texWidth + x];
+	
+	// Convert BGRA to ARGB
+	unsigned int b = (bgra >> 16) & 0xFF;
+	unsigned int g = (bgra >> 8) & 0xFF;
+	unsigned int r = bgra & 0xFF;
+	unsigned int a = (bgra >> 24) & 0xFF;
+	
+	return (a << 24) | (r << 16) | (g << 8) | b;
 }
 
 // Global lighting factor for current triangle (set by DrawTriangle)
@@ -167,19 +175,7 @@ unsigned int applyLighting(unsigned int color, float lighting) {
 
 void fillTriangle(vertex v0, vertex v1, vertex v2, const unsigned* texture, int texWidth, int texHeight)
 {
-	// Calculate reciprocal of linear Z for each vertex
-	float w0 = 1.0f / v0.pos.z;
-	float w1 = 1.0f / v1.pos.z;
-	float w2 = 1.0f / v2.pos.z;
-
-	// Adjust UV coordinates by the linear Z value
-	float u0 = v0.u * w0;
-	float v0_u = v0.v * w0;
-	float u1 = v1.u * w1;
-	float v1_u = v1.v * w1;
-	float u2 = v2.u * w2;
-	float v2_u = v2.v * w2;
-
+	// Use standard (non-perspective-corrected) interpolation for now
 	float startX = min(min(v0.pos.x, v1.pos.x), v2.pos.x);
 	float startY = min(min(v0.pos.y, v1.pos.y), v2.pos.y);
 	float endX = max(max(v0.pos.x, v1.pos.x), v2.pos.x);
@@ -192,24 +188,25 @@ void fillTriangle(vertex v0, vertex v1, vertex v2, const unsigned* texture, int 
 			Triangle tri = baryRatio(v0, v1, v2, static_cast<float>(x), static_cast<float>(y));
 			if (tri.b >= 0 && tri.b <= 1 && tri.y >= 0 && tri.y <= 1 && tri.a >= 0 && tri.a <= 1)
 			{
-				// Interpolate adjusted values
-				float wInterp = (w0 * tri.a) + (w1 * tri.b) + (w2 * tri.y);
-				float uInterp = (u0 * tri.a) + (u1 * tri.b) + (u2 * tri.y);
-				float vInterp = (v0_u * tri.a) + (v1_u * tri.b) + (v2_u * tri.y);
-
-				// Final correction
-				float u = uInterp / wInterp;
-				float v = vInterp / wInterp;
+				// Standard interpolation of UV coordinates
+				float u = (v0.u * tri.a) + (v1.u * tri.b) + (v2.u * tri.y);
+				float v = (v0.v * tri.a) + (v1.v * tri.b) + (v2.v * tri.y);
 				float z = (v0.pos.z * tri.a) + (v1.pos.z * tri.b) + (v2.pos.z * tri.y);
 
-				// Sample texture color
-				unsigned int texColor = sampleTexture(texture, texWidth, texHeight, u, v);
+				// Get pixel color - use texture if available, otherwise use vertex color
+				unsigned int pixelColor;
+				if (texture && texWidth > 0 && texHeight > 0) {
+					pixelColor = sampleTexture(texture, texWidth, texHeight, u, v);
+				} else {
+					// Use interpolated vertex color
+					pixelColor = v0.color;  // All vertices have same color for solid-colored meshes
+				}
 
-				// Apply lighting to the texture color
-				texColor = applyLighting(texColor, g_currentLightingFactor);
+				// Apply lighting to the color
+				pixelColor = applyLighting(pixelColor, g_currentLightingFactor);
 
-				// Draw the pixel with the sampled texture color
-				pixelDrawer(x, y, z, texColor);
+				// Draw the pixel
+				pixelDrawer(x, y, z, pixelColor);
 			}
 		}
 	}
@@ -223,6 +220,10 @@ vertex toScreen(vertex inp)
 	ans.pos.x = static_cast<float>(x);
 	ans.pos.y = static_cast<float>(y);
 	ans.pos.z = inp.pos.z;
+	ans.pos.w = inp.pos.w;
+	ans.u = inp.u;     // Copy UV coordinates
+	ans.v = inp.v;
+	ans.color = inp.color;
 	return ans;
 }
 

@@ -29,12 +29,20 @@ layout(std430, binding = 3) buffer LineBuffer {
     Vertex lineVerts[];
 };
 
+// Texture buffer (BGRA format)
+layout(std430, binding = 4) buffer TextureBuffer {
+    uint texturePixels[];
+};
+
 // Uniforms
 uniform int screenWidth;
 uniform int screenHeight;
 uniform int numTriangles;
 uniform int numLines;
 uniform float time;
+uniform int texWidth;
+uniform int texHeight;
+uniform int useTexture;  // 0 = use vertex color, 1 = use texture
 
 // Convert screen coords to buffer index
 int pixelIndex(int x, int y) {
@@ -81,6 +89,26 @@ uint packColor(vec4 c) {
     uint g = uint(clamp(c.g, 0.0, 1.0) * 255.0);
     uint b = uint(clamp(c.b, 0.0, 1.0) * 255.0);
     return (a << 24) | (r << 16) | (g << 8) | b;
+}
+
+// Sample texture (BGRA format) and convert to ARGB
+vec4 sampleTexture(float u, float v) {
+    // Clamp UV
+    u = clamp(u, 0.0, 1.0);
+    v = clamp(v, 0.0, 1.0);
+    
+    int x = int(u * float(texWidth - 1));
+    int y = int(v * float(texHeight - 1));
+    
+    uint bgra = texturePixels[y * texWidth + x];
+    
+    // Convert BGRA to vec4 RGBA
+    float bb = float((bgra >> 16) & 0xFF) / 255.0;
+    float gg = float((bgra >> 8) & 0xFF) / 255.0;
+    float rr = float(bgra & 0xFF) / 255.0;
+    float aa = float((bgra >> 24) & 0xFF) / 255.0;
+    
+    return vec4(rr, gg, bb, aa);
 }
 
 void main() {
@@ -135,12 +163,32 @@ void main() {
             if (z < finalDepth) {
                 finalDepth = z;
                 
-                // Interpolate color
-                vec4 c0 = unpackColor(v0.color);
-                vec4 c1 = unpackColor(v1.color);
-                vec4 c2 = unpackColor(v2.color);
-                vec4 interpColor = bary.x * c0 + bary.y * c1 + bary.z * c2;
-                finalColor = packColor(interpColor);
+                vec4 pixelColor;
+                
+                // Check if using texture or vertex color
+                if (useTexture > 0 && texWidth > 0 && texHeight > 0) {
+                    // Interpolate UVs
+                    float interpU = bary.x * v0.u + bary.y * v1.u + bary.z * v2.u;
+                    float interpV = bary.x * v0.v + bary.y * v1.v + bary.z * v2.v;
+                    
+                    // Sample texture
+                    vec4 texColor = sampleTexture(interpU, interpV);
+                    
+                    // Apply lighting from vertex color (alpha channel stores lighting)
+                    vec4 vertColor = unpackColor(v0.color);
+                    float lighting = (vertColor.r + vertColor.g + vertColor.b) / 3.0;
+                    if (lighting < 0.1) lighting = 1.0; // Default full bright if no lighting
+                    
+                    pixelColor = vec4(texColor.rgb * lighting, texColor.a);
+                } else {
+                    // Interpolate color
+                    vec4 c0 = unpackColor(v0.color);
+                    vec4 c1 = unpackColor(v1.color);
+                    vec4 c2 = unpackColor(v2.color);
+                    pixelColor = bary.x * c0 + bary.y * c1 + bary.z * c2;
+                }
+                
+                finalColor = packColor(pixelColor);
             }
         }
     }

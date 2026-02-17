@@ -27,9 +27,12 @@ private:
     GLuint depthBuffer = 0;
     GLuint triangleBuffer = 0;
     GLuint lineBuffer = 0;
+    GLuint textureBuffer = 0;
     
     int width, height;
+    int texW = 0, texH = 0;
     bool initialized = false;
+    bool useTexture = false;
     
     std::vector<GPUVertex> triangleData;
     std::vector<GPUVertex> lineData;
@@ -116,6 +119,11 @@ public:
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, lineBuffer);
         glBufferData(GL_SHADER_STORAGE_BUFFER, 1024 * sizeof(GPUVertex), nullptr, GL_DYNAMIC_DRAW);
         
+        // Initialize texture buffer
+        glGenBuffers(1, &textureBuffer);
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, textureBuffer);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, 4, nullptr, GL_STATIC_DRAW); // Will resize when texture uploaded
+        
         initialized = true;
         std::cout << "GPU Compute initialized successfully!\n";
         return true;
@@ -127,6 +135,7 @@ public:
         if (depthBuffer) glDeleteBuffers(1, &depthBuffer);
         if (triangleBuffer) glDeleteBuffers(1, &triangleBuffer);
         if (lineBuffer) glDeleteBuffers(1, &lineBuffer);
+        if (textureBuffer) glDeleteBuffers(1, &textureBuffer);
         
         if (hglrc) {
             wglMakeCurrent(nullptr, nullptr);
@@ -144,6 +153,21 @@ public:
         lineData.clear();
     }
     
+    // Upload texture data (BGRA format)
+    void uploadTexture(const unsigned int* textureData, int width, int height) {
+        if (!initialized) return;
+        texW = width;
+        texH = height;
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, textureBuffer);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, width * height * sizeof(unsigned int), textureData, GL_STATIC_DRAW);
+        useTexture = true;
+    }
+    
+    // Enable/disable texture sampling (call before adding triangles)
+    void setUseTexture(bool use) {
+        useTexture = use;
+    }
+    
     // Add a triangle (screen-space vertices)
     void addTriangle(float x0, float y0, float z0, unsigned int c0,
                      float x1, float y1, float z1, unsigned int c1,
@@ -151,6 +175,15 @@ public:
         triangleData.push_back({x0, y0, z0, 1.0f, c0, 0, 0, 0});
         triangleData.push_back({x1, y1, z1, 1.0f, c1, 0, 0, 0});
         triangleData.push_back({x2, y2, z2, 1.0f, c2, 0, 0, 0});
+    }
+    
+    // Add a textured triangle (screen-space vertices with UVs)
+    void addTexturedTriangle(float x0, float y0, float z0, unsigned int c0, float u0, float v0,
+                              float x1, float y1, float z1, unsigned int c1, float u1, float v1,
+                              float x2, float y2, float z2, unsigned int c2, float u2, float v2) {
+        triangleData.push_back({x0, y0, z0, 1.0f, c0, u0, v0, 0});
+        triangleData.push_back({x1, y1, z1, 1.0f, c1, u1, v1, 0});
+        triangleData.push_back({x2, y2, z2, 1.0f, c2, u2, v2, 0});
     }
     
     // Add a line (screen-space vertices)
@@ -186,6 +219,7 @@ public:
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, depthBuffer);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, triangleBuffer);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, lineBuffer);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, textureBuffer);
         
         // Set uniforms
         glUseProgram(computeProgram);
@@ -193,6 +227,9 @@ public:
         glUniform1i(glGetUniformLocation(computeProgram, "screenHeight"), height);
         glUniform1i(glGetUniformLocation(computeProgram, "numTriangles"), (int)(triangleData.size() / 3));
         glUniform1i(glGetUniformLocation(computeProgram, "numLines"), (int)(lineData.size() / 2));
+        glUniform1i(glGetUniformLocation(computeProgram, "texWidth"), texW);
+        glUniform1i(glGetUniformLocation(computeProgram, "texHeight"), texH);
+        glUniform1i(glGetUniformLocation(computeProgram, "useTexture"), useTexture ? 1 : 0);
         
         // Dispatch compute shader
         GLuint groupsX = (width + 15) / 16;
@@ -276,6 +313,18 @@ inline void GPU_AddTriangle(const vertex& v0, const vertex& v1, const vertex& v2
         v1.pos.x, v1.pos.y, v1.pos.z, v1.color,
         v2.pos.x, v2.pos.y, v2.pos.z, v2.color
     );
+}
+
+inline void GPU_AddTexturedTriangle(const vertex& v0, const vertex& v1, const vertex& v2) {
+    g_GLCompute.addTexturedTriangle(
+        v0.pos.x, v0.pos.y, v0.pos.z, v0.color, v0.u, v0.v,
+        v1.pos.x, v1.pos.y, v1.pos.z, v1.color, v1.u, v1.v,
+        v2.pos.x, v2.pos.y, v2.pos.z, v2.color, v2.u, v2.v
+    );
+}
+
+inline void GPU_UploadTexture(const unsigned int* textureData, int width, int height) {
+    g_GLCompute.uploadTexture(textureData, width, height);
 }
 
 inline void GPU_AddLine(const vertex& v0, const vertex& v1, unsigned int color) {

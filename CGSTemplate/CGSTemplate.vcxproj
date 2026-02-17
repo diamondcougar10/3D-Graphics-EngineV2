@@ -133,6 +133,14 @@
     <ClCompile Include="main.cpp" />
     <ClCompile Include="RasterSurface.cpp" />
     <ClCompile Include="XTime.cpp" />
+    <ClCompile Include="imgui\imgui.cpp" />
+    <ClCompile Include="imgui\imgui_draw.cpp" />
+    <ClCompile Include="imgui\imgui_tables.cpp" />
+    <ClCompile Include="imgui\imgui_widgets.cpp" />
+    <ClCompile Include="imgui\imgui_impl_win32.cpp" />
+    <ClCompile Include="imgui\imgui_impl_sw.cpp" />
+    <ClCompile Include="Texture.cpp" />
+
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="celestial.h" />
@@ -144,6 +152,17 @@
     <ClInclude Include="RasterSurface.h" />
     <ClInclude Include="Shaders.h" />
     <ClInclude Include="XTime.h" />
+    <ClInclude Include="imgui\imgui.h" />
+    <ClInclude Include="imgui\imgui_internal.h" />
+    <ClInclude Include="imgui\imconfig.h" />
+    <ClInclude Include="imgui\imgui_impl_win32.h" />
+    <ClInclude Include="imgui\imgui_impl_sw.h" />
+    <ClInclude Include="Texture.h" />
+    <ClInclude Include="Cubemap.h" />
+    <ClInclude Include="Skybox.h" />
+    <ClInclude Include="Object.h" />
+    <ClInclude Include="Mesh.h" />
+    <ClInclude Include="MaterialMesh.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="rasterizer.comp" />
