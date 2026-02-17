@@ -171,8 +171,9 @@ void main() {
                 
                 vec4 pixelColor;
                 
-                // Check if using texture or vertex color
-                if (useTexture > 0 && texWidth > 0 && texHeight > 0) {
+                // Check if this triangle is textured (per-triangle flag in pad field)
+                bool triTextured = (v0.pad > 0.5);
+                if (triTextured && texWidth > 0 && texHeight > 0) {
                     // Interpolate UVs
                     float interpU = bary.x * v0.u + bary.y * v1.u + bary.z * v2.u;
                     float interpV = bary.x * v0.v + bary.y * v1.v + bary.z * v2.v;

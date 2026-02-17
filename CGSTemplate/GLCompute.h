@@ -168,22 +168,22 @@ public:
         useTexture = use;
     }
     
-    // Add a triangle (screen-space vertices)
+    // Add a triangle (screen-space vertices) - pad=0 means NOT textured
     void addTriangle(float x0, float y0, float z0, unsigned int c0,
                      float x1, float y1, float z1, unsigned int c1,
                      float x2, float y2, float z2, unsigned int c2) {
-        triangleData.push_back({x0, y0, z0, 1.0f, c0, 0, 0, 0});
-        triangleData.push_back({x1, y1, z1, 1.0f, c1, 0, 0, 0});
-        triangleData.push_back({x2, y2, z2, 1.0f, c2, 0, 0, 0});
+        triangleData.push_back({x0, y0, z0, 1.0f, c0, 0, 0, 0.0f});  // pad=0 = solid color
+        triangleData.push_back({x1, y1, z1, 1.0f, c1, 0, 0, 0.0f});
+        triangleData.push_back({x2, y2, z2, 1.0f, c2, 0, 0, 0.0f});
     }
     
-    // Add a textured triangle (screen-space vertices with UVs)
+    // Add a textured triangle (screen-space vertices with UVs) - pad=1 means TEXTURED
     void addTexturedTriangle(float x0, float y0, float z0, unsigned int c0, float u0, float v0,
                               float x1, float y1, float z1, unsigned int c1, float u1, float v1,
                               float x2, float y2, float z2, unsigned int c2, float u2, float v2) {
-        triangleData.push_back({x0, y0, z0, 1.0f, c0, u0, v0, 0});
-        triangleData.push_back({x1, y1, z1, 1.0f, c1, u1, v1, 0});
-        triangleData.push_back({x2, y2, z2, 1.0f, c2, u2, v2, 0});
+        triangleData.push_back({x0, y0, z0, 1.0f, c0, u0, v0, 1.0f});  // pad=1 = textured
+        triangleData.push_back({x1, y1, z1, 1.0f, c1, u1, v1, 1.0f});
+        triangleData.push_back({x2, y2, z2, 1.0f, c2, u2, v2, 1.0f});
     }
     
     // Add a line (screen-space vertices)
