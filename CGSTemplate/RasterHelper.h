@@ -55,14 +55,15 @@ Triangle baryRatio(vertex v0, vertex v1, vertex v2, float currX, float currY)
 
 void pixelDrawer(int x, int y, float z, unsigned int color)
 {
-	int index = coordinateTranslation2D(x, y, RASTER_WIDTH);
-	if (index < NUM_PIXELS && x < RASTER_WIDTH && y < RASTER_HEIGHT)
+	if (x < 0 || x >= (int)RASTER_WIDTH || y < 0 || y >= (int)RASTER_HEIGHT)
+		return;
+
+	int index = y * RASTER_WIDTH + x;
+
+	if (z < DEPTH_ARRAY[index])
 	{
-		if (z < DEPTH_ARRAY[index])
-		{
-			DEPTH_ARRAY[index] = z;
-			SCREEN_ARRAY[index] = color;
-		}
+		DEPTH_ARRAY[index] = z;
+		SCREEN_ARRAY[index] = color;
 	}
 }
 

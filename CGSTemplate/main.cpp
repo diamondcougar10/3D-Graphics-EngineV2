@@ -14,7 +14,7 @@ int main() {
     matrix4x4 grid = MatrixIdentity();
 
     // Set the camera position along the negative Z-axis
-    vec4 camPos = { 0, 0, -1, 1 };
+    vec4 camPos = { 0, 0, -2, 1 };
 
     // Define vertices for the cube with UV coordinates
     vertex topLeftFrontVert({ -0.25, 0.25, -0.25, 1 }, 0xFFFF0000, 0.0f, 0.0f);
@@ -78,9 +78,9 @@ int main() {
         // Update the cube rotation based on the timer
         timer.Signal();
         timeElapsed += timer.Delta();
-        if (timeElapsed > 0.03f) {
+        if (timeElapsed > 0.016f) {
             timeElapsed = 0;
-            cube = matrixRotationY(cube, 0.027f);
+            cube = matrixRotationY(cube, 1.5f);  // 1.5 degrees per frame (~60fps = 90 deg/sec)
         }
 
         // Draw the cube triangles with texture
