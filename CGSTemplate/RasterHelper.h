@@ -271,6 +271,17 @@ void DrawTriangle(vertex& v0, vertex& v1, vertex& v2, const unsigned* texture, i
 	vertex screen_v0 = toScreen(copy_v0);
 	vertex screen_v1 = toScreen(copy_v1);
 	vertex screen_v2 = toScreen(copy_v2);
+	
+	// Backface culling: calculate signed area in screen space
+	float edge1x = screen_v1.pos.x - screen_v0.pos.x;
+	float edge1y = screen_v1.pos.y - screen_v0.pos.y;
+	float edge2x = screen_v2.pos.x - screen_v0.pos.x;
+	float edge2y = screen_v2.pos.y - screen_v0.pos.y;
+	float signedArea = edge1x * edge2y - edge1y * edge2x;
+	
+	// Cull back-facing triangles (positive signed area = back-facing with our winding)
+	if (signedArea >= 0.0f) return;
+	
 	fillTriangle(screen_v0, screen_v1, screen_v2, texture, texWidth, texHeight);
 }
 

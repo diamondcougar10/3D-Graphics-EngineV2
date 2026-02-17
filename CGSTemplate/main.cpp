@@ -6,6 +6,7 @@
 #include "GLCompute.h"
 #include "MaterialMesh.h"
 #include "Skybox.h"
+#include "Texture.h"
 #include <cmath>
 
 // ImGui includes
@@ -60,10 +61,19 @@ vertex transformToScreen(vertex v) {
     return transformed;
 }
 
-// GPU version of DrawTriangle with lighting (for non-textured geometry)
+// Forward declarations for clipping functions (defined below)
+static vertex LerpVertex(const vertex& a, const vertex& b, float t);
+static int ClipTriangleToNear(const vertex& v0, const vertex& v1, const vertex& v2, 
+                               float nearZ, vertex outVerts[6]);
+static vertex TransformToView(const vertex& v);
+static vertex ProjectToScreen(const vertex& v);
+static constexpr float kNear = 0.1f;
+
+// GPU version of DrawTriangle with lighting and near-plane clipping
 void GPU_DrawTriangle(vertex v0, vertex v1, vertex v2, unsigned int baseColor) {
     // Ensure GPU doesn't use texture for solid-color triangles
     g_GLCompute.setUseTexture(false);
+    
     // Transform to world space first for normal calculation
     vertex w0 = matrixMultiplicationVert(SV_WorldMatrix, v0);
     vertex w1 = matrixMultiplicationVert(SV_WorldMatrix, v1);
@@ -80,17 +90,30 @@ void GPU_DrawTriangle(vertex v0, vertex v1, vertex v2, unsigned int baseColor) {
     // Apply lighting to color
     unsigned int litColor = applyLightingToColor(baseColor, NdotL);
     
-    // Transform to screen space
-    vertex s0 = transformToScreen(v0);
-    vertex s1 = transformToScreen(v1);
-    vertex s2 = transformToScreen(v2);
-    s0.color = s1.color = s2.color = litColor;
+    // Transform to view space for clipping
+    vertex view0 = TransformToView(v0);
+    vertex view1 = TransformToView(v1);
+    vertex view2 = TransformToView(v2);
+    view0.color = view1.color = view2.color = litColor;
     
-    GPU_AddTriangle(s0, s1, s2);
+    // Clip triangle against near plane
+    vertex clippedVerts[6];
+    int numTris = ClipTriangleToNear(view0, view1, view2, kNear, clippedVerts);
+    
+    // Project and submit each clipped triangle
+    for (int i = 0; i < numTris; i++) {
+        vertex s0 = ProjectToScreen(clippedVerts[i * 3 + 0]);
+        vertex s1 = ProjectToScreen(clippedVerts[i * 3 + 1]);
+        vertex s2 = ProjectToScreen(clippedVerts[i * 3 + 2]);
+        GPU_AddTriangle(s0, s1, s2);
+    }
 }
 
-// GPU version for textured triangles (cube)
+// GPU version for textured triangles with near-plane clipping
 void GPU_DrawTexturedTriangle(vertex v0, vertex v1, vertex v2) {
+    // Enable texture sampling for this triangle
+    g_GLCompute.setUseTexture(true);
+    
     // Transform to world space first for normal calculation
     vertex w0 = matrixMultiplicationVert(SV_WorldMatrix, v0);
     vertex w1 = matrixMultiplicationVert(SV_WorldMatrix, v1);
@@ -110,26 +133,155 @@ void GPU_DrawTexturedTriangle(vertex v0, vertex v1, vertex v2) {
     float total = ambient + diffuse;
     if (total > 1.0f) total = 1.0f;
     
-    // Transform to screen space (preserving UVs)
-    vertex s0 = transformToScreen(v0);
-    vertex s1 = transformToScreen(v1);
-    vertex s2 = transformToScreen(v2);
-    
-    // Store lighting as grayscale in color (shader will multiply texture by this)
+    // Store lighting as grayscale in color
     unsigned int lightVal = (unsigned int)(total * 255.0f);
     unsigned int lightColor = 0xFF000000 | (lightVal << 16) | (lightVal << 8) | lightVal;
-    s0.color = s1.color = s2.color = lightColor;
     
-    // Pass UVs from original vertices
-    s0.u = v0.u; s0.v = v0.v;
-    s1.u = v1.u; s1.v = v1.v;
-    s2.u = v2.u; s2.v = v2.v;
+    // Transform to view space for clipping (preserve UVs)
+    vertex view0 = TransformToView(v0);
+    vertex view1 = TransformToView(v1);
+    vertex view2 = TransformToView(v2);
+    view0.color = view1.color = view2.color = lightColor;
+    view0.u = v0.u; view0.v = v0.v;
+    view1.u = v1.u; view1.v = v1.v;
+    view2.u = v2.u; view2.v = v2.v;
     
-    GPU_AddTexturedTriangle(s0, s1, s2);
+    // Clip triangle against near plane
+    vertex clippedVerts[6];
+    int numTris = ClipTriangleToNear(view0, view1, view2, kNear, clippedVerts);
+    
+    // Project and submit each clipped triangle
+    for (int i = 0; i < numTris; i++) {
+        vertex s0 = ProjectToScreen(clippedVerts[i * 3 + 0]);
+        vertex s1 = ProjectToScreen(clippedVerts[i * 3 + 1]);
+        vertex s2 = ProjectToScreen(clippedVerts[i * 3 + 2]);
+        GPU_AddTexturedTriangle(s0, s1, s2);
+    }
 }
 
-// Near plane clipping constant (must match projection)
-static constexpr float kNear = 0.1f;
+// Interpolate a vertex between two vertices at parameter t
+static vertex LerpVertex(const vertex& a, const vertex& b, float t) {
+    vertex result;
+    result.pos.x = a.pos.x + (b.pos.x - a.pos.x) * t;
+    result.pos.y = a.pos.y + (b.pos.y - a.pos.y) * t;
+    result.pos.z = a.pos.z + (b.pos.z - a.pos.z) * t;
+    result.pos.w = a.pos.w + (b.pos.w - a.pos.w) * t;
+    result.u = a.u + (b.u - a.u) * t;
+    result.v = a.v + (b.v - a.v) * t;
+    result.color = a.color; // Use color from first vertex
+    return result;
+}
+
+// Clip triangle against near plane in view space
+// Returns number of output triangles (0, 1, or 2)
+// Outputs up to 2 triangles in outVerts (6 vertices max)
+static int ClipTriangleToNear(const vertex& v0, const vertex& v1, const vertex& v2, 
+                               float nearZ, vertex outVerts[6]) {
+    // Check which vertices are in front of near plane
+    bool in0 = v0.pos.z >= nearZ;
+    bool in1 = v1.pos.z >= nearZ;
+    bool in2 = v2.pos.z >= nearZ;
+    int numIn = (in0 ? 1 : 0) + (in1 ? 1 : 0) + (in2 ? 1 : 0);
+    
+    if (numIn == 0) {
+        // All behind - cull entire triangle
+        return 0;
+    }
+    
+    if (numIn == 3) {
+        // All in front - keep triangle as is
+        outVerts[0] = v0;
+        outVerts[1] = v1;
+        outVerts[2] = v2;
+        return 1;
+    }
+    
+    if (numIn == 1) {
+        // One vertex in front - clip to smaller triangle
+        const vertex* vIn;
+        const vertex* vOut1;
+        const vertex* vOut2;
+        
+        if (in0) { vIn = &v0; vOut1 = &v1; vOut2 = &v2; }
+        else if (in1) { vIn = &v1; vOut1 = &v2; vOut2 = &v0; }
+        else { vIn = &v2; vOut1 = &v0; vOut2 = &v1; }
+        
+        // Find intersection points
+        float t1 = (nearZ - vIn->pos.z) / (vOut1->pos.z - vIn->pos.z);
+        float t2 = (nearZ - vIn->pos.z) / (vOut2->pos.z - vIn->pos.z);
+        
+        vertex clip1 = LerpVertex(*vIn, *vOut1, t1);
+        vertex clip2 = LerpVertex(*vIn, *vOut2, t2);
+        
+        outVerts[0] = *vIn;
+        outVerts[1] = clip1;
+        outVerts[2] = clip2;
+        return 1;
+    }
+    
+    // numIn == 2: Two vertices in front - clip to quad (2 triangles)
+    const vertex* vOut;
+    const vertex* vIn1;
+    const vertex* vIn2;
+    
+    if (!in0) { vOut = &v0; vIn1 = &v1; vIn2 = &v2; }
+    else if (!in1) { vOut = &v1; vIn1 = &v2; vIn2 = &v0; }
+    else { vOut = &v2; vIn1 = &v0; vIn2 = &v1; }
+    
+    // Find intersection points
+    float t1 = (nearZ - vIn1->pos.z) / (vOut->pos.z - vIn1->pos.z);
+    float t2 = (nearZ - vIn2->pos.z) / (vOut->pos.z - vIn2->pos.z);
+    
+    vertex clip1 = LerpVertex(*vIn1, *vOut, t1);
+    vertex clip2 = LerpVertex(*vIn2, *vOut, t2);
+    
+    // First triangle: vIn1, clip1, vIn2
+    outVerts[0] = *vIn1;
+    outVerts[1] = clip1;
+    outVerts[2] = *vIn2;
+    
+    // Second triangle: vIn2, clip1, clip2
+    outVerts[3] = *vIn2;
+    outVerts[4] = clip1;
+    outVerts[5] = clip2;
+    
+    return 2;
+}
+
+// Transform vertex to view space (world -> view)
+static vertex TransformToView(const vertex& v) {
+    vertex temp = v;  // Make non-const copy
+    vertex result = matrixMultiplicationVert(SV_WorldMatrix, temp);
+    result = matrixMultiplicationVert(SV_ViewMatrix, result);
+    result.u = v.u;
+    result.v = v.v;
+    result.color = v.color;
+    return result;
+}
+
+// Project view-space vertex to screen space
+static vertex ProjectToScreen(const vertex& v) {
+    vertex temp = v;  // Make non-const copy
+    vertex clipV = matrixMultiplicationVert(SV_ProjectionMatrix, temp);
+    
+    // Perspective divide
+    float w = clipV.pos.w;
+    if (w <= 0.00001f) w = 0.00001f;
+    
+    clipV.pos.x /= w;
+    clipV.pos.y /= w;
+    clipV.pos.z /= w;
+    
+    // NDC to screen
+    clipV.pos.x = (clipV.pos.x + 1.0f) * 0.5f * RASTER_WIDTH;
+    clipV.pos.y = (1.0f - clipV.pos.y) * 0.5f * RASTER_HEIGHT;
+    
+    clipV.u = v.u;
+    clipV.v = v.v;
+    clipV.color = v.color;
+    
+    return clipV;
+}
 
 // Clip a line segment against the near plane in view space
 // Returns true if any part of the line is visible
@@ -266,7 +418,8 @@ int main() {
     vertex rightBR({  hs, -hs,  hs, 1 }, 0xFFFFFFFF, 1.0f, 1.0f);
 
     // Set up projection matrix (only needs to be set once)
-    SV_ProjectionMatrix = projectionMatrixMath(90.0f, (float)RASTER_HEIGHT / RASTER_WIDTH, 100.0f, 0.1f);
+    // Using 60 degree FOV for less distortion, proper aspect ratio
+    SV_ProjectionMatrix = projectionMatrixMath(60.0f, (float)RASTER_HEIGHT / RASTER_WIDTH, 100.0f, 0.1f);
 
     // Initialize the raster surface
     RS_Initialize("3D Engine - RMB=Look, MMB=Pan, Scroll=Zoom, WASD=Move", RASTER_WIDTH, RASTER_HEIGHT);
@@ -291,9 +444,34 @@ int main() {
     game::g_RenderCallbacks.drawTexturedTriangleGPU = GPU_DrawTexturedTriangle;
     game::g_RenderCallbacks.drawTriangleGPU = GPU_DrawTriangle;
     game::g_RenderCallbacks.drawTriangleCPU = DrawTriangle;
+    game::g_RenderCallbacks.uploadTextureGPU = GPU_UploadTexture;
     game::g_RenderCallbacks.texture = celestial_pixels;
     game::g_RenderCallbacks.texWidth = celestial_width;
     game::g_RenderCallbacks.texHeight = celestial_height;
+    
+    // ===== LOAD TEXTURES =====
+    // Make texture static so it persists for the entire program
+    static game::Texture woodboxTexture;
+    
+    // Try various paths to find the texture
+    const char* texturePaths[] = {
+        "textures/woodbox.jpg",
+        "textures\\woodbox.jpg",
+        "../textures/woodbox.jpg",
+        "..\\textures\\woodbox.jpg",
+        "C:\\Users\\curph\\OneDrive\\Documents\\3d cube\\textures\\woodbox.jpg",
+        "C:/Users/curph/OneDrive/Documents/3d cube/textures/woodbox.jpg"
+    };
+    
+    for (const char* path : texturePaths) {
+        if (woodboxTexture.load(path)) {
+            std::cout << "SUCCESS: Loaded texture from: " << path << " (" << woodboxTexture.getWidth() << "x" << woodboxTexture.getHeight() << ")\n";
+            break;
+        }
+    }
+    if (!woodboxTexture.isLoaded()) {
+        std::cerr << "ERROR: Could not load woodbox texture from any path!\n";
+    }
     
     // ===== CREATE SCENE OBJECTS =====
     // Create the main cube using the object system
@@ -303,8 +481,15 @@ int main() {
     );
     mainCube->setPosition(0.0f, 0.5f, 0.0f);
     mainCube->setRotationSpeed(45.0f);  // Auto-rotate (degrees per second)
-    mainCube->setColor(0.2f, 0.4f, 0.8f);  // Blue color
-    mainCube->setUseTexture(false);
+    
+    // Apply woodbox texture to main cube
+    if (woodboxTexture.isLoaded()) {
+        mainCube->setTexture(woodboxTexture.getPixels(), woodboxTexture.getWidth(), woodboxTexture.getHeight());
+        mainCube->setUseTexture(true);
+    } else {
+        mainCube->setColor(0.2f, 0.4f, 0.8f);  // Fallback blue color
+        mainCube->setUseTexture(false);
+    }
     game::g_ObjectManager.addObject(mainCube);
     
     // Add some additional cubes to demonstrate the object system

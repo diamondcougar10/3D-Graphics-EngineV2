@@ -1,0 +1,9 @@
+Loaded compute shader: CGSTemplate/rasterizer.comp
+GPU Compute initialized successfully!
+Using GPU compute shader for rasterization!
+Controls: Right-click+drag = Look, Middle-click+drag = Pan
+          Scroll wheel = Zoom, WASD = Fly, Q/E = Up/Down
+Loaded texture: textures/woodbox.jpg (1024x1024)
+SUCCESS: Loaded texture from: textures/woodbox.jpg (1024x1024)
+Created 11 objects
+Skybox initialized

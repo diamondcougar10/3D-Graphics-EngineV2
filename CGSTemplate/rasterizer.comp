@@ -147,6 +147,12 @@ void main() {
         vec2 b = v1.pos.xy;
         vec2 c = v2.pos.xy;
         
+        // Backface culling: check signed area (cross product of edges)
+        vec2 edge1 = b - a;
+        vec2 edge2 = c - a;
+        float signedArea = edge1.x * edge2.y - edge1.y * edge2.x;
+        if (signedArea >= 0.0) continue; // Back-facing triangle
+        
         // Bounding box check
         vec2 minBB = min(min(a, b), c);
         vec2 maxBB = max(max(a, b), c);

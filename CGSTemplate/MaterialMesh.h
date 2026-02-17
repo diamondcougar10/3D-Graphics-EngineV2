@@ -11,6 +11,7 @@ struct RenderCallbacks {
     void (*drawTexturedTriangleGPU)(vertex, vertex, vertex) = nullptr;
     void (*drawTriangleGPU)(vertex, vertex, vertex, unsigned int) = nullptr;
     void (*drawTriangleCPU)(vertex&, vertex&, vertex&, const unsigned*, int, int) = nullptr;
+    void (*uploadTextureGPU)(const unsigned int*, int, int) = nullptr;  // Upload texture to GPU
     bool useGPU = false;
     const unsigned int* texture = nullptr;
     int texWidth = 0;
@@ -91,6 +92,11 @@ public:
         const unsigned int* tex = useTexture ? (texture ? texture : g_RenderCallbacks.texture) : nullptr;
         int tw = useTexture ? (texture ? texWidth : g_RenderCallbacks.texWidth) : 0;
         int th = useTexture ? (texture ? texHeight : g_RenderCallbacks.texHeight) : 0;
+        
+        // If using GPU and this object has its own texture, upload it
+        if (g_RenderCallbacks.useGPU && useTexture && texture && g_RenderCallbacks.uploadTextureGPU) {
+            g_RenderCallbacks.uploadTextureGPU(texture, texWidth, texHeight);
+        }
         
         // Render each triangle
         for (size_t i = 0; i + 2 < indices.size(); i += 3) {

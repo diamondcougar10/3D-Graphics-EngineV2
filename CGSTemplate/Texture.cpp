@@ -1,9 +1,9 @@
 #include "Texture.h"
 #include <iostream>
 
-// Optional: For loading from files, you can add stb_image
-// #define STB_IMAGE_IMPLEMENTATION
-// #include "stb_image.h"
+// Enable stb_image for file loading
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
 
 namespace game {
 
@@ -34,11 +34,7 @@ Texture::~Texture() {
 bool Texture::load(const char* path) {
     path_ = path;
     
-    // TODO: Implement file loading with stb_image if needed
-    // For now, we use embedded textures via loadFromData()
-    
-    /*
-    // Example stb_image implementation:
+    // Load image using stb_image
     int w, h, channels;
     unsigned char* data = stbi_load(path, &w, &h, &channels, 4);
     if (!data) {
@@ -50,22 +46,24 @@ bool Texture::load(const char* path) {
     height_ = h;
     numberOfChannels_ = 4;
     
-    // Convert to unsigned int array (RGBA)
+    // Convert to unsigned int array (BGRA format for GPU shader compatibility)
+    // stb_image loads as RGBA, we need to convert to BGRA (B in high bits after alpha)
+    // For JPG files without alpha, force alpha to 255 (fully opaque)
     pixels_.resize(w * h);
     for (int i = 0; i < w * h; i++) {
         unsigned char r = data[i * 4 + 0];
         unsigned char g = data[i * 4 + 1];
         unsigned char b = data[i * 4 + 2];
         unsigned char a = data[i * 4 + 3];
-        pixels_[i] = (a << 24) | (r << 16) | (g << 8) | b;
+        if (a == 0) a = 255;  // Force opaque for formats without alpha (like JPG)
+        // BGRA format: Alpha << 24 | Blue << 16 | Green << 8 | Red
+        pixels_[i] = (a << 24) | (b << 16) | (g << 8) | r;
     }
     
     stbi_image_free(data);
     loaded_ = true;
-    */
-    
-    std::cerr << "File loading not implemented. Use loadFromData() for embedded textures.\n";
-    return false;
+    std::cout << "Loaded texture: " << path << " (" << w << "x" << h << ")\n";
+    return true;
 }
 
 void Texture::loadFromData(const unsigned int* data, int width, int height) {
