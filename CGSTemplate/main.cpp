@@ -7,11 +7,40 @@
 #include "MaterialMesh.h"
 #include "Skybox.h"
 #include "Texture.h"
+#include "Model.h"
 #include <cmath>
+#include <commdlg.h>  // For file open dialog
 
 // ImGui includes
 #include "imgui/imgui.h"
 #include "imgui/imgui_impl_sw.h"
+
+// Loaded models container
+std::vector<std::unique_ptr<game::Model>> g_LoadedModels;
+
+// Helper function to open file dialog for model loading
+std::string OpenModelFileDialog(HWND hwnd) {
+    char filename[MAX_PATH] = "";
+    
+    OPENFILENAMEA ofn;
+    ZeroMemory(&ofn, sizeof(ofn));
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = hwnd;
+    ofn.lpstrFilter = "3D Models\0*.obj;*.fbx;*.gltf;*.glb;*.dae;*.3ds;*.blend;*.stl;*.ply\0"
+                      "OBJ Files (*.obj)\0*.obj\0"
+                      "FBX Files (*.fbx)\0*.fbx\0"
+                      "GLTF Files (*.gltf;*.glb)\0*.gltf;*.glb\0"
+                      "All Files (*.*)\0*.*\0";
+    ofn.lpstrFile = filename;
+    ofn.nMaxFile = MAX_PATH;
+    ofn.lpstrTitle = "Load 3D Model";
+    ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+    
+    if (GetOpenFileNameA(&ofn)) {
+        return std::string(filename);
+    }
+    return "";
+}
 
 // GPU rendering mode
 bool useGPU = true;  // Enable GPU rendering with texture support
@@ -352,6 +381,9 @@ void GPU_drawLine(vertex start, vertex end, unsigned int color) {
 }
 
 int main() {
+    // Initialize screen buffers to desktop resolution
+    InitScreenBuffers();
+    
     // Set up the timer
     XTime timer(10, 0.75);
     timer.Restart();
@@ -627,6 +659,11 @@ int main() {
         game::g_ObjectManager.updateAll(deltaTime);
         game::g_RenderCallbacks.useGPU = useGPU;  // Update in case toggled
         
+        // Update loaded models
+        for (auto& model : g_LoadedModels) {
+            model->update(deltaTime);
+        }
+        
         // ===== MOUSE CAMERA INPUT (Unity-style) =====
         POINT currentMousePos;
         GetCursorPos(&currentMousePos);
@@ -715,6 +752,11 @@ int main() {
         if (GetAsyncKeyState('Q') & 0x8000) camY -= moveSpeed * deltaTime;
         if (GetAsyncKeyState('E') & 0x8000) camY += moveSpeed * deltaTime;
         
+        // ESC to exit fullscreen app
+        if (GetAsyncKeyState(VK_ESCAPE) & 0x8000) {
+            PostMessage((HWND)RS_GetWindowHandle(), WM_CLOSE, 0, 0);
+        }
+        
         // ===== UPDATE VIEW MATRIX =====
         vec4 camPos = { camX, camY, camZ, 1.0f };
         matrix4x4 camTranslation = matrixTranslation(camPos);
@@ -762,44 +804,73 @@ int main() {
         }
         tabWasPressed = tabPressed;
         
-        // ===== LIGHTING SETTINGS PANEL (DISABLED) =====
-        /*
+        // ===== MODEL LOADING / SCENE MANAGER PANEL =====
         if (showSettingsPanel) {
             ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_FirstUseEver);
-            ImGui::SetNextWindowSize(ImVec2(300, 350), ImGuiCond_FirstUseEver);
+            ImGui::SetNextWindowSize(ImVec2(320, 400), ImGuiCond_FirstUseEver);
             
-            if (ImGui::Begin("Lighting Settings", &showSettingsPanel)) {
+            if (ImGui::Begin("Scene Manager", &showSettingsPanel)) {
                 ImGui::Text("Press TAB to toggle this panel");
                 ImGui::Separator();
                 
-                // Sun/Light Direction
-                ImGui::Text("Sun Direction");
-                ImGui::SliderFloat("X##dir", &lightDirX, -1.0f, 1.0f);
-                ImGui::SliderFloat("Y##dir", &lightDirY, -1.0f, 1.0f);
-                ImGui::SliderFloat("Z##dir", &lightDirZ, -1.0f, 1.0f);
-                if (ImGui::Button("Normalize Direction")) {
-                    float len = sqrtf(lightDirX*lightDirX + lightDirY*lightDirY + lightDirZ*lightDirZ);
-                    if (len > 0.001f) {
-                        lightDirX /= len;
-                        lightDirY /= len;
-                        lightDirZ /= len;
+                // Model Loading Section
+                ImGui::Text("Model Loading");
+                if (ImGui::Button("+ Load Model", ImVec2(150, 30))) {
+                    std::string filePath = OpenModelFileDialog(hwnd);
+                    if (!filePath.empty()) {
+                        auto model = std::make_unique<game::Model>();
+                        if (model->loadModel(filePath)) {
+                            // Position the new model in front of camera
+                            model->setPosition(camX, 0.0f, camZ + 2.0f);
+                            g_LoadedModels.push_back(std::move(model));
+                        }
                     }
                 }
                 
                 ImGui::Separator();
                 
-                // Ambient Light
-                ImGui::SliderFloat("Ambient", &ambientIntensity, 0.0f, 1.0f);
+                // List loaded models
+                ImGui::Text("Loaded Models (%zu):", g_LoadedModels.size());
                 
-                // Sun Color
-                ImGui::ColorEdit3("Sun Color", sunColor);
+                static int selectedModel = -1;
+                for (size_t i = 0; i < g_LoadedModels.size(); i++) {
+                    auto& model = g_LoadedModels[i];
+                    char label[256];
+                    snprintf(label, sizeof(label), "%s (%zu triangles)##model%zu", 
+                             model->getName().c_str(), model->getTotalTriangles(), i);
+                    
+                    if (ImGui::Selectable(label, selectedModel == (int)i)) {
+                        selectedModel = (int)i;
+                    }
+                }
                 
-                ImGui::Separator();
-                
-                // Cube Settings
-                ImGui::Text("Cube Settings");
-                ImGui::ColorEdit3("Cube Color", cubeColorRGB);
-                ImGui::Checkbox("Auto Rotate", &autoRotateCube);
+                // Selected model controls
+                if (selectedModel >= 0 && selectedModel < (int)g_LoadedModels.size()) {
+                    ImGui::Separator();
+                    ImGui::Text("Selected: %s", g_LoadedModels[selectedModel]->getName().c_str());
+                    
+                    // Position controls
+                    float pos[3] = { 
+                        g_LoadedModels[selectedModel]->getPosition().x,
+                        g_LoadedModels[selectedModel]->getPosition().y,
+                        g_LoadedModels[selectedModel]->getPosition().z
+                    };
+                    if (ImGui::DragFloat3("Position", pos, 0.1f)) {
+                        g_LoadedModels[selectedModel]->setPosition(pos[0], pos[1], pos[2]);
+                    }
+                    
+                    // Scale control
+                    static float modelScale = 1.0f;
+                    if (ImGui::DragFloat("Scale", &modelScale, 0.01f, 0.01f, 10.0f)) {
+                        g_LoadedModels[selectedModel]->setScale(modelScale);
+                    }
+                    
+                    // Delete button
+                    if (ImGui::Button("Delete Model")) {
+                        g_LoadedModels.erase(g_LoadedModels.begin() + selectedModel);
+                        selectedModel = -1;
+                    }
+                }
                 
                 ImGui::Separator();
                 
@@ -812,7 +883,6 @@ int main() {
             }
             ImGui::End();
         }
-        */
         
         // End ImGui frame (generates draw data)
         ImGui::Render();
@@ -844,6 +914,11 @@ int main() {
             
             // Draw cube triangles (textured) - using object manager
             game::g_ObjectManager.renderAll();
+            
+            // Render loaded models
+            for (auto& model : g_LoadedModels) {
+                model->render();
+            }
             
             // Dispatch GPU compute and get pixels
             GPU_Dispatch(SCREEN_ARRAY);
@@ -883,6 +958,11 @@ int main() {
             // Draw cube - using object manager
             game::g_ObjectManager.renderAll();
             
+            // Render loaded models
+            for (auto& model : g_LoadedModels) {
+                model->render();
+            }
+            
             // Render ImGui on top
             ImGui_ImplSW_RenderDrawData(ImGui::GetDrawData(), SCREEN_ARRAY, RASTER_WIDTH, RASTER_HEIGHT);
         }
@@ -895,5 +975,6 @@ int main() {
     ImGui::DestroyContext();
     if (useGPU) GPU_Shutdown();
     RS_Shutdown();
+    FreeScreenBuffers();
     return 0;
 }

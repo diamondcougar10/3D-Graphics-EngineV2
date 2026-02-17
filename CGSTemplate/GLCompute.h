@@ -45,6 +45,10 @@ public:
     }
     
     bool init() {
+        // Update dimensions to match current screen resolution
+        width = RASTER_WIDTH;
+        height = RASTER_HEIGHT;
+        
         // Create a hidden window for OpenGL context
         WNDCLASSA wc = {};
         wc.lpfnWndProc = DefWindowProcA;

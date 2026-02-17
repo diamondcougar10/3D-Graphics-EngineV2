@@ -1,12 +1,34 @@
 #pragma once
 #include <iostream>
 #include <vector>
-#define RASTER_WIDTH 800
-#define RASTER_HEIGHT 600
-#define NUM_PIXELS (RASTER_HEIGHT * RASTER_WIDTH)
+#include <Windows.h>
+
+// Dynamic screen resolution (set at runtime to match desktop)
+inline int RASTER_WIDTH = 1920;
+inline int RASTER_HEIGHT = 1080;
+inline int NUM_PIXELS = RASTER_HEIGHT * RASTER_WIDTH;
+
+// Dynamic screen buffers (allocated at runtime)
+inline unsigned int* SCREEN_ARRAY = nullptr;
+inline float* DEPTH_ARRAY = nullptr;
+
+// Initialize screen buffers to desktop resolution
+inline void InitScreenBuffers() {
+    RASTER_WIDTH = GetSystemMetrics(SM_CXSCREEN);
+    RASTER_HEIGHT = GetSystemMetrics(SM_CYSCREEN);
+    NUM_PIXELS = RASTER_WIDTH * RASTER_HEIGHT;
+    SCREEN_ARRAY = new unsigned int[NUM_PIXELS];
+    DEPTH_ARRAY = new float[NUM_PIXELS];
+}
+
+inline void FreeScreenBuffers() {
+    delete[] SCREEN_ARRAY;
+    delete[] DEPTH_ARRAY;
+    SCREEN_ARRAY = nullptr;
+    DEPTH_ARRAY = nullptr;
+}
+
 #define SWAP_BGRA_TO_ARGB(color) ( ((color & 0xFF000000) >> 24) | ((color & 0x00FF0000) >> 8) | ((color & 0x0000FF00) << 8) | ((color & 0x000000FF) << 24) )
-unsigned int SCREEN_ARRAY[NUM_PIXELS];
-float DEPTH_ARRAY[NUM_PIXELS];
 
 struct vec3
 {

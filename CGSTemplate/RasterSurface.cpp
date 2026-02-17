@@ -32,6 +32,21 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
 	switch (message)
 	{
+	case WM_SYSCOMMAND:
+		if ((wParam & 0xFFF0) == SC_MAXIMIZE) {
+			// Snap window back to center instead of maximizing
+			RECT windowRect;
+			GetWindowRect(hWnd, &windowRect);
+			int windowWidth = windowRect.right - windowRect.left;
+			int windowHeight = windowRect.bottom - windowRect.top;
+			int screenWidth = GetSystemMetrics(SM_CXSCREEN);
+			int screenHeight = GetSystemMetrics(SM_CYSCREEN);
+			int x = (screenWidth - windowWidth) / 2;
+			int y = (screenHeight - windowHeight) / 2;
+			SetWindowPos(hWnd, NULL, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
+			return 0;
+		}
+		break;
 	case WM_MOUSEWHEEL:
 		{
 			int delta = GET_WHEEL_DELTA_WPARAM(wParam);
@@ -113,13 +128,13 @@ void ProcessRasterSurface(	unsigned int _width, unsigned int _height,
 	wndClass.hbrBackground = (HBRUSH)(COLOR_WINDOWFRAME);
 	wndClass.hIcon = LoadIconW(0, IDI_APPLICATION);
 	RegisterClassExW(&wndClass);
-	// adjust window size to contain backbuffer
-	RECT window_size = { 0, 0, _width, _height };
-	AdjustWindowRect(&window_size, WS_OVERLAPPEDWINDOW, false);
-	// Launch window and start managment on other thread
-	window = CreateWindowW(	L"RasterSurfaceApplication", L"Raster Surface",
-							WS_OVERLAPPEDWINDOW & ~(WS_THICKFRAME | WS_MAXIMIZEBOX),
-							CW_USEDEFAULT, CW_USEDEFAULT, window_size.right - window_size.left,
+	// Create fixed-size window with title bar and close button (no resize)
+	DWORD windowStyle = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_VISIBLE;
+	RECT window_size = { 0, 0, (LONG)_width, (LONG)_height };
+	AdjustWindowRect(&window_size, windowStyle, false);
+	window = CreateWindowW(	L"RasterSurfaceApplication", L"3D Engine",
+							windowStyle,
+							0, 0, window_size.right - window_size.left,
 							window_size.bottom - window_size.top,
 							NULL, NULL, GetModuleHandleW(0), 0);
 	// Present visible window

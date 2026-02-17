@@ -67,15 +67,20 @@ void pixelDrawer(int x, int y, float z, unsigned int color)
 	}
 }
 
-// Star field data (generated once)
-unsigned int STAR_BUFFER[NUM_PIXELS];
+// Star field data (generated once, dynamically allocated)
+inline unsigned int* STAR_BUFFER = nullptr;
 bool starsGenerated = false;
 
 void generateStarField() {
 	if (starsGenerated) return;
 	
+	// Allocate star buffer if needed
+	if (!STAR_BUFFER) {
+		STAR_BUFFER = new unsigned int[NUM_PIXELS];
+	}
+	
 	// Fill with black space
-	for (unsigned int i = 0; i < NUM_PIXELS; i++) {
+	for (int i = 0; i < NUM_PIXELS; i++) {
 		STAR_BUFFER[i] = 0xFF000008; // Very dark blue-black
 	}
 	
