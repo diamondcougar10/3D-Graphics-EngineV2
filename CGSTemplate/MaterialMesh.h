@@ -2,6 +2,7 @@
 #include "Mesh.h"
 #include "Shaders.h"
 #include "Cubemap.h"
+#include <string>
 
 namespace game {
 
@@ -18,29 +19,32 @@ struct RenderCallbacks {
     int texWidth = 0;
     int texHeight = 0;
     unsigned int* screenBuffer = nullptr;  // Pointer to screen pixels for flush
+    std::string currentTextureName;
     
     // Track currently uploaded GPU texture to avoid redundant uploads
     const unsigned int* currentGPUTexture = nullptr;
     
     // Upload texture only if different from current
-    void uploadTextureIfNeeded(const unsigned int* tex, int w, int h) {
+    void uploadTextureIfNeeded(const unsigned int* tex, int w, int h, const std::string& textureName = "") {
         if (tex != currentGPUTexture && uploadTextureGPU) {
             uploadTextureGPU(tex, w, h);
             currentGPUTexture = tex;
+            currentTextureName = textureName;
         }
     }
     
     // Flush triangles with current texture, then allow texture change
-    void flushAndChangeTexture(const unsigned int* newTex, int w, int h) {
+    void flushAndChangeTexture(const unsigned int* newTex, int w, int h, const std::string& textureName = "") {
         if (currentGPUTexture && currentGPUTexture != newTex && flushGPU && screenBuffer) {
             flushGPU(screenBuffer);
         }
-        uploadTextureIfNeeded(newTex, w, h);
+        uploadTextureIfNeeded(newTex, w, h, textureName);
     }
     
     // Reset at frame start (optional, in case texture memory changes)
     void resetTextureTracking() {
         currentGPUTexture = nullptr;
+        currentTextureName.clear();
     }
 };
 
@@ -54,6 +58,7 @@ private:
     int texWidth = 0;
     int texHeight = 0;
     bool useTexture = true;
+    std::string textureName;
     float rotationSpeed = 0.0f;  // For auto-rotation
     
     // Environment mapping properties
@@ -74,11 +79,14 @@ public:
     virtual ~MaterialMesh() = default;
     
     // Texture settings
-    void setTexture(const unsigned int* tex, int w, int h) {
+    void setTexture(const unsigned int* tex, int w, int h, const std::string& name = "") {
         texture = tex;
         texWidth = w;
         texHeight = h;
+        textureName = name;
     }
+
+    const std::string& getTextureName() const { return textureName; }
     
     void setUseTexture(bool use) { useTexture = use; }
     bool getUseTexture() const { return useTexture; }
@@ -121,7 +129,8 @@ public:
         
         // If using GPU and this object has its own texture, flush previous batch and upload new
         if (g_RenderCallbacks.useGPU && useTexture && tex) {
-            g_RenderCallbacks.flushAndChangeTexture(tex, tw, th);
+            std::string nameForDebug = texture ? textureName : "global_texture";
+            g_RenderCallbacks.flushAndChangeTexture(tex, tw, th, nameForDebug);
         }
         
         // Render each triangle
