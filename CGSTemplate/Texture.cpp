@@ -46,9 +46,8 @@ bool Texture::load(const char* path) {
     height_ = h;
     numberOfChannels_ = 4;
     
-    // Convert to unsigned int array (BGRA format for GPU shader compatibility)
-    // stb_image loads as RGBA, we need to convert to BGRA (B in high bits after alpha)
-    // For JPG files without alpha, force alpha to 255 (fully opaque)
+    // Convert to packed ARGB (0xAARRGGBB).
+    // stb_image loads as RGBA bytes.
     pixels_.resize(w * h);
     for (int i = 0; i < w * h; i++) {
         unsigned char r = data[i * 4 + 0];
@@ -56,8 +55,7 @@ bool Texture::load(const char* path) {
         unsigned char b = data[i * 4 + 2];
         unsigned char a = data[i * 4 + 3];
         if (a == 0) a = 255;  // Force opaque for formats without alpha (like JPG)
-        // BGRA format: Alpha << 24 | Blue << 16 | Green << 8 | Red
-        pixels_[i] = (a << 24) | (b << 16) | (g << 8) | r;
+        pixels_[i] = (a << 24) | (r << 16) | (g << 8) | b;
     }
     
     stbi_image_free(data);
@@ -137,15 +135,8 @@ unsigned int Texture::sampleBGRA(float u, float v) const {
     int x = static_cast<int>(u * (width_ - 1));
     int y = static_cast<int>(v * (height_ - 1));
     
-    unsigned int bgra = pixels_[y * width_ + x];
-    
-    // Convert BGRA to ARGB
-    unsigned int b = (bgra >> 16) & 0xFF;
-    unsigned int g = (bgra >> 8) & 0xFF;
-    unsigned int r = bgra & 0xFF;
-    unsigned int a = (bgra >> 24) & 0xFF;
-    
-    return (a << 24) | (r << 16) | (g << 8) | b;
+    // Pixels are already packed as ARGB.
+    return pixels_[y * width_ + x];
 }
 
 } // namespace game
