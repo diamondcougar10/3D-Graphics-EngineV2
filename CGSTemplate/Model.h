@@ -13,8 +13,6 @@
 #include <iostream>
 #include <filesystem>
 #include <algorithm>
-#include <cctype>
-#include <cstdlib>
 
 namespace game {
 
@@ -41,7 +39,6 @@ private:
     void processNode(aiNode* node, const aiScene* scene);
     MaterialMesh* processMesh(aiMesh* mesh, const aiScene* scene);
     ModelTexture* loadTexture(const std::string& path);
-    ModelTexture* loadTextureFromMaterialPath(const aiString& texPath, const aiScene* scene);
     
 public:
     Model() : Object() {}
@@ -109,9 +106,7 @@ inline bool Model::loadModel(const std::string& path) {
         aiProcess_FlipUVs |
         aiProcess_GenNormals |
         aiProcess_CalcTangentSpace |
-        aiProcess_JoinIdenticalVertices |
-        aiProcess_ConvertToLeftHanded |
-        aiProcess_PreTransformVertices);
+        aiProcess_JoinIdenticalVertices);
     
     if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode) {
         std::cerr << "Assimp Error: " << importer.GetErrorString() << std::endl;
@@ -205,21 +200,16 @@ inline MaterialMesh* Model::processMesh(aiMesh* mesh, const aiScene* scene) {
     if (mesh->mMaterialIndex >= 0) {
         aiMaterial* material = scene->mMaterials[mesh->mMaterialIndex];
         
-        // Try BASE_COLOR first, then DIFFUSE
-        aiString texPath;
-        bool hasTexturePath = false;
-        if (material->GetTextureCount(aiTextureType_BASE_COLOR) > 0 &&
-            material->GetTexture(aiTextureType_BASE_COLOR, 0, &texPath) == AI_SUCCESS) {
-            hasTexturePath = true;
-        } else if (material->GetTextureCount(aiTextureType_DIFFUSE) > 0 &&
-                   material->GetTexture(aiTextureType_DIFFUSE, 0, &texPath) == AI_SUCCESS) {
-            hasTexturePath = true;
-        }
-
-        if (hasTexturePath) {
-            ModelTexture* tex = loadTextureFromMaterialPath(texPath, scene);
+        // Try to load diffuse texture
+        if (material->GetTextureCount(aiTextureType_DIFFUSE) > 0) {
+            aiString texPath;
+            material->GetTexture(aiTextureType_DIFFUSE, 0, &texPath);
+            
+            std::string fullPath = directory + "/" + texPath.C_Str();
+            ModelTexture* tex = loadTexture(fullPath);
+            
             if (tex && !tex->pixels.empty()) {
-                matMesh->setTexture(tex->pixels.data(), tex->width, tex->height, tex->path);
+                matMesh->setTexture(tex->pixels.data(), tex->width, tex->height);
                 matMesh->setUseTexture(true);
                 texturesLoaded++;
             } else {
@@ -235,62 +225,6 @@ inline MaterialMesh* Model::processMesh(aiMesh* mesh, const aiScene* scene) {
     }
     
     return matMesh;
-}
-
-
-inline ModelTexture* Model::loadTextureFromMaterialPath(const aiString& texPath, const aiScene* scene) {
-    const char* rawPath = texPath.C_Str();
-    if (!rawPath || rawPath[0] == '\0') return nullptr;
-
-    if (rawPath[0] == '*') {
-        const aiTexture* embedded = scene->GetEmbeddedTexture(rawPath);
-        if (!embedded && std::isdigit(static_cast<unsigned char>(rawPath[1]))) {
-            int index = std::atoi(rawPath + 1);
-            if (index >= 0 && static_cast<unsigned int>(index) < scene->mNumTextures) {
-                embedded = scene->mTextures[index];
-            }
-        }
-        if (!embedded) return nullptr;
-
-        ModelTexture newTex;
-        newTex.path = rawPath;
-
-        if (embedded->mHeight == 0) {
-            int channels = 0;
-            unsigned char* data = stbi_load_from_memory(
-                reinterpret_cast<const unsigned char*>(embedded->pcData),
-                static_cast<int>(embedded->mWidth),
-                &newTex.width,
-                &newTex.height,
-                &channels,
-                4);
-            if (!data) return nullptr;
-
-            newTex.pixels.resize(newTex.width * newTex.height);
-            for (int i = 0; i < newTex.width * newTex.height; i++) {
-                unsigned char r = data[i * 4 + 0];
-                unsigned char g = data[i * 4 + 1];
-                unsigned char b = data[i * 4 + 2];
-                unsigned char a = data[i * 4 + 3];
-                newTex.pixels[i] = (static_cast<unsigned int>(a) << 24) | (static_cast<unsigned int>(r) << 16) | (static_cast<unsigned int>(g) << 8) | static_cast<unsigned int>(b);
-            }
-            stbi_image_free(data);
-        } else {
-            newTex.width = static_cast<int>(embedded->mWidth);
-            newTex.height = static_cast<int>(embedded->mHeight);
-            newTex.pixels.resize(newTex.width * newTex.height);
-            for (int i = 0; i < newTex.width * newTex.height; ++i) {
-                aiTexel px = embedded->pcData[i];
-                newTex.pixels[i] = (static_cast<unsigned int>(px.a) << 24) | (static_cast<unsigned int>(px.r) << 16) | (static_cast<unsigned int>(px.g) << 8) | static_cast<unsigned int>(px.b);
-            }
-        }
-
-        loadedTextures.push_back(std::move(newTex));
-        return &loadedTextures.back();
-    }
-
-    std::string fullPath = directory + "/" + rawPath;
-    return loadTexture(fullPath);
 }
 
 inline ModelTexture* Model::loadTexture(const std::string& path) {
@@ -351,14 +285,13 @@ inline ModelTexture* Model::loadTexture(const std::string& path) {
     for (const auto& tryPath : pathsToTry) {
         data = stbi_load(tryPath.c_str(), &newTex.width, &newTex.height, &channels, 4);
         if (data) {
-            newTex.path = tryPath;
             std::cout << "Found texture at: " << tryPath << std::endl;
             break;
         }
     }
     
     if (data) {
-        // Convert RGBA to packed ARGB (0xAARRGGBB)
+        // Convert RGBA to BGRA
         newTex.pixels.resize(newTex.width * newTex.height);
         for (int i = 0; i < newTex.width * newTex.height; i++) {
             unsigned char r = data[i * 4 + 0];

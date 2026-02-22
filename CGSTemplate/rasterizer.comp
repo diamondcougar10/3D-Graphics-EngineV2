@@ -29,9 +29,9 @@ layout(std430, binding = 3) buffer LineBuffer {
     Vertex lineVerts[];
 };
 
-// Texture buffer (packed ARGB 0xAARRGGBB)
+// Texture buffer (BGRA format)
 layout(std430, binding = 4) buffer TextureBuffer {
-    uint texPixels[];
+    uint texturePixels[];
 };
 
 // Uniforms
@@ -42,8 +42,7 @@ uniform int numLines;
 uniform float time;
 uniform int texWidth;
 uniform int texHeight;
-uniform int useTexture;  // legacy global toggle
-uniform int uvDebug;
+uniform int useTexture;  // 0 = use vertex color, 1 = use texture
 
 // Convert screen coords to buffer index
 int pixelIndex(int x, int y) {
@@ -92,18 +91,24 @@ uint packColor(vec4 c) {
     return (a << 24) | (r << 16) | (g << 8) | b;
 }
 
-// Sample texture (packed ARGB)
+// Sample texture (BGRA format) and convert to ARGB
 vec4 sampleTexture(float u, float v) {
-    if (texWidth <= 0 || texHeight <= 0) return vec4(1.0, 1.0, 1.0, 1.0);
-
-    u = clamp(u, 0.0, 0.999999);
-    v = clamp(v, 0.0, 0.999999);
-
-    int x = int(u * float(texWidth));
-    int y = int(v * float(texHeight));
-
-    uint argb = texPixels[y * texWidth + x];
-    return unpackColor(argb);
+    // Clamp UV
+    u = clamp(u, 0.0, 1.0);
+    v = clamp(v, 0.0, 1.0);
+    
+    int x = int(u * float(texWidth - 1));
+    int y = int(v * float(texHeight - 1));
+    
+    uint bgra = texturePixels[y * texWidth + x];
+    
+    // Convert BGRA to vec4 RGBA
+    float bb = float((bgra >> 16) & 0xFF) / 255.0;
+    float gg = float((bgra >> 8) & 0xFF) / 255.0;
+    float rr = float(bgra & 0xFF) / 255.0;
+    float aa = float((bgra >> 24) & 0xFF) / 255.0;
+    
+    return vec4(rr, gg, bb, aa);
 }
 
 void main() {
@@ -167,23 +172,21 @@ void main() {
                 vec4 pixelColor;
                 
                 // Check if this triangle is textured (per-triangle flag in pad field)
-                bool triTextured = (v0.pad > 0.5) && (texWidth > 0 && texHeight > 0);
-                if (triTextured) {
+                bool triTextured = (v0.pad > 0.5);
+                if (triTextured && texWidth > 0 && texHeight > 0) {
                     // Interpolate UVs
                     float interpU = bary.x * v0.u + bary.y * v1.u + bary.z * v2.u;
                     float interpV = bary.x * v0.v + bary.y * v1.v + bary.z * v2.v;
                     
-                    if (uvDebug == 1) {
-                        pixelColor = vec4(interpU, interpV, 0.0, 1.0);
-                    } else {
-                        vec4 texColor = sampleTexture(interpU, interpV);
-
-                        vec4 vertColor = unpackColor(v0.color);
-                        float lighting = (vertColor.r + vertColor.g + vertColor.b) / 3.0;
-                        if (lighting < 0.1) lighting = 1.0;
-
-                        pixelColor = vec4(texColor.rgb * lighting, texColor.a);
-                    }
+                    // Sample texture
+                    vec4 texColor = sampleTexture(interpU, interpV);
+                    
+                    // Apply lighting from vertex color (alpha channel stores lighting)
+                    vec4 vertColor = unpackColor(v0.color);
+                    float lighting = (vertColor.r + vertColor.g + vertColor.b) / 3.0;
+                    if (lighting < 0.1) lighting = 1.0; // Default full bright if no lighting
+                    
+                    pixelColor = vec4(texColor.rgb * lighting, texColor.a);
                 } else {
                     // Interpolate color
                     vec4 c0 = unpackColor(v0.color);
