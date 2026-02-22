@@ -33,12 +33,23 @@ private:
     int texW = 0, texH = 0;
     bool initialized = false;
     bool useTexture = false;
+    bool depthCleared = false;
+    
+    // Performance counters (per frame)
+    int dispatchCount = 0;
+    int trianglesRendered = 0;
+    int textureUploads = 0;
     
     std::vector<GPUVertex> triangleData;
     std::vector<GPUVertex> lineData;
 
 public:
     GLCompute() : width(RASTER_WIDTH), height(RASTER_HEIGHT) {}
+    
+    // Performance getters
+    int getDispatchCount() const { return dispatchCount; }
+    int getTrianglesRendered() const { return trianglesRendered; }
+    int getTextureUploads() const { return textureUploads; }
     
     ~GLCompute() {
         shutdown();
@@ -155,6 +166,25 @@ public:
     void beginFrame() {
         triangleData.clear();
         lineData.clear();
+        depthCleared = false;
+        
+        // Reset performance counters
+        dispatchCount = 0;
+        trianglesRendered = 0;
+        textureUploads = 0;
+        
+        // Reset depth buffer at frame start (not in dispatch)
+        if (initialized) {
+            glBindBuffer(GL_SHADER_STORAGE_BUFFER, depthBuffer);
+            std::vector<float> depthReset(NUM_PIXELS, 1000000.0f);
+            glBufferData(GL_SHADER_STORAGE_BUFFER, NUM_PIXELS * sizeof(float), depthReset.data(), GL_DYNAMIC_DRAW);
+            
+            // Also clear pixel buffer to background color (black with stars drawn later)
+            glBindBuffer(GL_SHADER_STORAGE_BUFFER, pixelBuffer);
+            std::vector<unsigned int> pixelClear(NUM_PIXELS, 0xFF000000);
+            glBufferData(GL_SHADER_STORAGE_BUFFER, NUM_PIXELS * sizeof(unsigned int), pixelClear.data(), GL_DYNAMIC_DRAW);
+            depthCleared = true;
+        }
     }
     
     // Upload texture data (BGRA format)
@@ -165,6 +195,7 @@ public:
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, textureBuffer);
         glBufferData(GL_SHADER_STORAGE_BUFFER, width * height * sizeof(unsigned int), textureData, GL_STATIC_DRAW);
         useTexture = true;
+        textureUploads++;  // Track uploads
     }
     
     // Enable/disable texture sampling (call before adding triangles)
@@ -197,14 +228,58 @@ public:
         lineData.push_back({x1, y1, z1, 1.0f, c1, 0, 0, 0});
     }
     
+    // Flush current triangles to the pixel buffer (for multi-texture support)
+    // Does NOT reset depth buffer, allowing incremental rendering
+    void flushTriangles(unsigned int* outputPixels) {
+        if (!initialized || triangleData.empty()) return;
+        
+        // Track triangles before clearing
+        trianglesRendered += (int)(triangleData.size() / 3);
+        dispatchCount++;
+        
+        // Upload triangle data
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, triangleBuffer);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, triangleData.size() * sizeof(GPUVertex), triangleData.data(), GL_DYNAMIC_DRAW);
+        
+        // Bind buffers
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, pixelBuffer);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, depthBuffer);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, triangleBuffer);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, lineBuffer);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, textureBuffer);
+        
+        // Set uniforms
+        glUseProgram(computeProgram);
+        glUniform1i(glGetUniformLocation(computeProgram, "screenWidth"), width);
+        glUniform1i(glGetUniformLocation(computeProgram, "screenHeight"), height);
+        glUniform1i(glGetUniformLocation(computeProgram, "numTriangles"), (int)(triangleData.size() / 3));
+        glUniform1i(glGetUniformLocation(computeProgram, "numLines"), 0);  // Don't process lines in flush
+        glUniform1i(glGetUniformLocation(computeProgram, "texWidth"), texW);
+        glUniform1i(glGetUniformLocation(computeProgram, "texHeight"), texH);
+        glUniform1i(glGetUniformLocation(computeProgram, "useTexture"), useTexture ? 1 : 0);
+        
+        // Dispatch compute shader
+        GLuint groupsX = (width + 15) / 16;
+        GLuint groupsY = (height + 15) / 16;
+        glDispatchCompute(groupsX, groupsY, 1);
+        
+        // Wait for completion
+        glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+        
+        // Clear triangle buffer for next batch (keep depth intact)
+        triangleData.clear();
+    }
+    
     // Execute compute shader and read back pixels
     void dispatch(unsigned int* outputPixels) {
         if (!initialized) return;
         
-        // Reset depth buffer
-        glBindBuffer(GL_SHADER_STORAGE_BUFFER, depthBuffer);
-        std::vector<float> depthReset(NUM_PIXELS, 1000000.0f);
-        glBufferData(GL_SHADER_STORAGE_BUFFER, NUM_PIXELS * sizeof(float), depthReset.data(), GL_DYNAMIC_DRAW);
+        // Only reset depth if not already done in beginFrame
+        if (!depthCleared) {
+            glBindBuffer(GL_SHADER_STORAGE_BUFFER, depthBuffer);
+            std::vector<float> depthReset(NUM_PIXELS, 1000000.0f);
+            glBufferData(GL_SHADER_STORAGE_BUFFER, NUM_PIXELS * sizeof(float), depthReset.data(), GL_DYNAMIC_DRAW);
+        }
         
         // Upload triangle data
         if (!triangleData.empty()) {
@@ -242,6 +317,11 @@ public:
         
         // Wait for completion
         glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+        
+        // Track performance
+        trianglesRendered += (int)(triangleData.size() / 3);
+        trianglesRendered += (int)(lineData.size() / 2);  // lines too
+        dispatchCount++;
         
         // Read back pixel data
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, pixelBuffer);
@@ -340,6 +420,11 @@ inline void GPU_AddLine(const vertex& v0, const vertex& v1, unsigned int color) 
 
 inline void GPU_Dispatch(unsigned int* pixels) {
     g_GLCompute.dispatch(pixels);
+}
+
+// Flush current triangles (for multi-texture rendering)
+inline void GPU_FlushTriangles(unsigned int* pixels) {
+    g_GLCompute.flushTriangles(pixels);
 }
 
 inline void GPU_Shutdown() {

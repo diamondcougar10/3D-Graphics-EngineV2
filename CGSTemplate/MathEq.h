@@ -156,6 +156,17 @@ matrix4x4 matrixRotationY(matrix4x4 m, float rotY) {
     return matrixMultiplicationMatrix(m, Y);
 }
 
+matrix4x4 matrixRotationZ(float rotZ) {
+    float r = degreetoRadians(rotZ);
+    matrix4x4 Z = {
+        cos(r),  -sin(r), 0, 0,
+        sin(r),  cos(r),  0, 0,
+        0,       0,       1, 0,
+        0,       0,       0, 1
+    };
+    return Z;
+}
+
 float Lerp(float a, float b, float t) {
     return a + t * (b - a);
 }

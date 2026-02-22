@@ -12,10 +12,36 @@ struct RenderCallbacks {
     void (*drawTriangleGPU)(vertex, vertex, vertex, unsigned int) = nullptr;
     void (*drawTriangleCPU)(vertex&, vertex&, vertex&, const unsigned*, int, int) = nullptr;
     void (*uploadTextureGPU)(const unsigned int*, int, int) = nullptr;  // Upload texture to GPU
+    void (*flushGPU)(unsigned int*) = nullptr;  // Flush current triangles to pixels
     bool useGPU = false;
     const unsigned int* texture = nullptr;
     int texWidth = 0;
     int texHeight = 0;
+    unsigned int* screenBuffer = nullptr;  // Pointer to screen pixels for flush
+    
+    // Track currently uploaded GPU texture to avoid redundant uploads
+    const unsigned int* currentGPUTexture = nullptr;
+    
+    // Upload texture only if different from current
+    void uploadTextureIfNeeded(const unsigned int* tex, int w, int h) {
+        if (tex != currentGPUTexture && uploadTextureGPU) {
+            uploadTextureGPU(tex, w, h);
+            currentGPUTexture = tex;
+        }
+    }
+    
+    // Flush triangles with current texture, then allow texture change
+    void flushAndChangeTexture(const unsigned int* newTex, int w, int h) {
+        if (currentGPUTexture && currentGPUTexture != newTex && flushGPU && screenBuffer) {
+            flushGPU(screenBuffer);
+        }
+        uploadTextureIfNeeded(newTex, w, h);
+    }
+    
+    // Reset at frame start (optional, in case texture memory changes)
+    void resetTextureTracking() {
+        currentGPUTexture = nullptr;
+    }
 };
 
 // Global render callbacks (set by engine)
@@ -93,9 +119,9 @@ public:
         int tw = useTexture ? (texture ? texWidth : g_RenderCallbacks.texWidth) : 0;
         int th = useTexture ? (texture ? texHeight : g_RenderCallbacks.texHeight) : 0;
         
-        // If using GPU and this object has its own texture, upload it
-        if (g_RenderCallbacks.useGPU && useTexture && texture && g_RenderCallbacks.uploadTextureGPU) {
-            g_RenderCallbacks.uploadTextureGPU(texture, texWidth, texHeight);
+        // If using GPU and this object has its own texture, flush previous batch and upload new
+        if (g_RenderCallbacks.useGPU && useTexture && tex) {
+            g_RenderCallbacks.flushAndChangeTexture(tex, tw, th);
         }
         
         // Render each triangle

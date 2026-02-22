@@ -104,7 +104,7 @@ public:
 
 protected:
     void updateWorldMatrix() {
-        // Build world matrix: Scale * Rotation * Translation
+        // Build world matrix: Scale * RotationZ * RotationY * RotationX * Translation
         // Start with identity
         worldMatrix = MatrixIdentity();
         
@@ -113,12 +113,16 @@ protected:
         worldMatrix.axisY.y = scale.y;
         worldMatrix.axisZ.z = scale.z;
         
-        // Apply rotation X
+        // Apply rotation X (pitch)
         matrix4x4 rotX = matrixRotationX(rotation.x);
         worldMatrix = matrixMultiplicationMatrix(worldMatrix, rotX);
         
-        // Apply rotation Y
+        // Apply rotation Y (yaw)
         worldMatrix = matrixRotationY(worldMatrix, rotation.y);
+        
+        // Apply rotation Z (roll)
+        matrix4x4 rotZ = matrixRotationZ(rotation.z);
+        worldMatrix = matrixMultiplicationMatrix(worldMatrix, rotZ);
         
         // Apply translation
         vec4 transVec = { position.x, position.y, position.z, 1.0f };

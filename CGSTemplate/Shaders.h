@@ -67,11 +67,33 @@ float calculateLighting(vec3 faceNormal) {
     return (lighting > 1.0f) ? 1.0f : lighting;
 }
 
+// Near plane distance for clipping
+float SV_NearPlane = 0.1f;
+
+// Transform vertex to view space only (for clipping)
+void VS_WorldView(vertex& v) {
+    v.pos = matrixMultiplicationVec(SV_WorldMatrix, v.pos);
+    v.pos = matrixMultiplicationVec(SV_ViewMatrix, v.pos);
+}
+
+// Project from view space to clip space and do perspective divide
+void VS_Project(vertex& v) {
+    v.pos = matrixMultiplicationVec(SV_ProjectionMatrix, v.pos);
+    v.pos2.z = v.pos.w; // Store w for reference
+    if (v.pos.w > 0.001f) {
+        v.pos.x /= v.pos.w;
+        v.pos.y /= v.pos.w;
+        v.pos.z /= v.pos.w;
+    }
+}
+
 void PS_WVP(vertex& v) {
     v.pos = matrixMultiplicationVec(SV_WorldMatrix, v.pos);
     v.pos = matrixMultiplicationVec(SV_ViewMatrix, v.pos);
     v.pos = matrixMultiplicationVec(SV_ProjectionMatrix, v.pos);
-    if (v.pos.w != 0) {
+    // Store original w for clipping checks (use pos2.z as temp storage)
+    v.pos2.z = v.pos.w;
+    if (v.pos.w > 0.001f) {
         v.pos.x /= v.pos.w;
         v.pos.y /= v.pos.w;
         v.pos.z /= v.pos.w;

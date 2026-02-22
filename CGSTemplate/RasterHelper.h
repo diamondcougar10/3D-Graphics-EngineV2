@@ -55,32 +55,26 @@ Triangle baryRatio(vertex v0, vertex v1, vertex v2, float currX, float currY)
 
 void pixelDrawer(int x, int y, float z, unsigned int color)
 {
-	if (x < 0 || x >= (int)RASTER_WIDTH || y < 0 || y >= (int)RASTER_HEIGHT)
-		return;
-
-	int index = y * RASTER_WIDTH + x;
-
-	if (z < DEPTH_ARRAY[index])
+	int index = coordinateTranslation2D(x, y, RASTER_WIDTH);
+	if (index < NUM_PIXELS && x < RASTER_WIDTH && y < RASTER_HEIGHT)
 	{
-		DEPTH_ARRAY[index] = z;
-		SCREEN_ARRAY[index] = color;
+		if (z < DEPTH_ARRAY[index])
+		{
+			DEPTH_ARRAY[index] = z;
+			SCREEN_ARRAY[index] = color;
+		}
 	}
 }
 
-// Star field data (generated once, dynamically allocated)
-inline unsigned int* STAR_BUFFER = nullptr;
+// Star field data (generated once)
+unsigned int STAR_BUFFER[NUM_PIXELS];
 bool starsGenerated = false;
 
 void generateStarField() {
 	if (starsGenerated) return;
 	
-	// Allocate star buffer if needed
-	if (!STAR_BUFFER) {
-		STAR_BUFFER = new unsigned int[NUM_PIXELS];
-	}
-	
 	// Fill with black space
-	for (int i = 0; i < NUM_PIXELS; i++) {
+	for (unsigned int i = 0; i < NUM_PIXELS; i++) {
 		STAR_BUFFER[i] = 0xFF000008; // Very dark blue-black
 	}
 	
@@ -119,9 +113,23 @@ void clearColorBuffer(unsigned int color)
 
 void LineDrawer(vertex start, vertex end, unsigned int color)
 {
+	// Skip lines that go way outside the screen (prevents long diagonal glitches)
+	if (start.pos.x < -1000 || start.pos.x > RASTER_WIDTH + 1000 ||
+		start.pos.y < -1000 || start.pos.y > RASTER_HEIGHT + 1000 ||
+		end.pos.x < -1000 || end.pos.x > RASTER_WIDTH + 1000 ||
+		end.pos.y < -1000 || end.pos.y > RASTER_HEIGHT + 1000) {
+		return;
+	}
+	
 	float dx = end.pos.x - start.pos.x;
 	float dy = end.pos.y - start.pos.y;
 	float largest = max(abs(dx), abs(dy));
+	
+	// Limit max line length to prevent excessive iteration
+	if (largest > 2000) {
+		return;
+	}
+	
 	if (largest < 1.0f) largest = 1.0f;
 	for (int i = 0; i <= (int)largest; i++)
 	{
@@ -143,16 +151,8 @@ unsigned sampleTexture(const unsigned* texture, int texWidth, int texHeight, flo
 	int x = static_cast<int>(u * (texWidth - 1));
 	int y = static_cast<int>(v * (texHeight - 1));
 
-	// Sample color from texture (BGRA format)
-	unsigned int bgra = texture[y * texWidth + x];
-	
-	// Convert BGRA to ARGB
-	unsigned int b = (bgra >> 16) & 0xFF;
-	unsigned int g = (bgra >> 8) & 0xFF;
-	unsigned int r = bgra & 0xFF;
-	unsigned int a = (bgra >> 24) & 0xFF;
-	
-	return (a << 24) | (r << 16) | (g << 8) | b;
+	// Sample color from texture
+	return texture[y * texWidth + x];
 }
 
 // Global lighting factor for current triangle (set by DrawTriangle)
@@ -180,7 +180,19 @@ unsigned int applyLighting(unsigned int color, float lighting) {
 
 void fillTriangle(vertex v0, vertex v1, vertex v2, const unsigned* texture, int texWidth, int texHeight)
 {
-	// Use standard (non-perspective-corrected) interpolation for now
+	// Calculate reciprocal of linear Z for each vertex
+	float w0 = 1.0f / v0.pos.z;
+	float w1 = 1.0f / v1.pos.z;
+	float w2 = 1.0f / v2.pos.z;
+
+	// Adjust UV coordinates by the linear Z value
+	float u0 = v0.u * w0;
+	float v0_u = v0.v * w0;
+	float u1 = v1.u * w1;
+	float v1_u = v1.v * w1;
+	float u2 = v2.u * w2;
+	float v2_u = v2.v * w2;
+
 	float startX = min(min(v0.pos.x, v1.pos.x), v2.pos.x);
 	float startY = min(min(v0.pos.y, v1.pos.y), v2.pos.y);
 	float endX = max(max(v0.pos.x, v1.pos.x), v2.pos.x);
@@ -193,25 +205,24 @@ void fillTriangle(vertex v0, vertex v1, vertex v2, const unsigned* texture, int 
 			Triangle tri = baryRatio(v0, v1, v2, static_cast<float>(x), static_cast<float>(y));
 			if (tri.b >= 0 && tri.b <= 1 && tri.y >= 0 && tri.y <= 1 && tri.a >= 0 && tri.a <= 1)
 			{
-				// Standard interpolation of UV coordinates
-				float u = (v0.u * tri.a) + (v1.u * tri.b) + (v2.u * tri.y);
-				float v = (v0.v * tri.a) + (v1.v * tri.b) + (v2.v * tri.y);
+				// Interpolate adjusted values
+				float wInterp = (w0 * tri.a) + (w1 * tri.b) + (w2 * tri.y);
+				float uInterp = (u0 * tri.a) + (u1 * tri.b) + (u2 * tri.y);
+				float vInterp = (v0_u * tri.a) + (v1_u * tri.b) + (v2_u * tri.y);
+
+				// Final correction
+				float u = uInterp / wInterp;
+				float v = vInterp / wInterp;
 				float z = (v0.pos.z * tri.a) + (v1.pos.z * tri.b) + (v2.pos.z * tri.y);
 
-				// Get pixel color - use texture if available, otherwise use vertex color
-				unsigned int pixelColor;
-				if (texture && texWidth > 0 && texHeight > 0) {
-					pixelColor = sampleTexture(texture, texWidth, texHeight, u, v);
-				} else {
-					// Use interpolated vertex color
-					pixelColor = v0.color;  // All vertices have same color for solid-colored meshes
-				}
+				// Sample texture color
+				unsigned int texColor = sampleTexture(texture, texWidth, texHeight, u, v);
 
-				// Apply lighting to the color
-				pixelColor = applyLighting(pixelColor, g_currentLightingFactor);
+				// Apply lighting to the texture color
+				texColor = applyLighting(texColor, g_currentLightingFactor);
 
-				// Draw the pixel
-				pixelDrawer(x, y, z, pixelColor);
+				// Draw the pixel with the sampled texture color
+				pixelDrawer(x, y, z, texColor);
 			}
 		}
 	}
@@ -225,27 +236,89 @@ vertex toScreen(vertex inp)
 	ans.pos.x = static_cast<float>(x);
 	ans.pos.y = static_cast<float>(y);
 	ans.pos.z = inp.pos.z;
-	ans.pos.w = inp.pos.w;
-	ans.u = inp.u;     // Copy UV coordinates
+	ans.u = inp.u;
 	ans.v = inp.v;
 	ans.color = inp.color;
 	return ans;
 }
 
-void drawLine(const vertex& Start, const vertex& End, unsigned color) {
-	vertex copyStart = Start;
-	vertex copyEnd = End;
-	if (VertexShader) {
-		VertexShader(copyStart);
-		VertexShader(copyEnd);
+// Clip a line against the near plane in view space (z > nearPlane)
+// Returns true if line is visible, false if entirely clipped
+bool clipLineNearPlane(vertex& v0, vertex& v1, float nearPlane) {
+	// In view space, camera looks down +Z, so near plane is at z = nearPlane
+	float z0 = v0.pos.z;
+	float z1 = v1.pos.z;
+	
+	// Both behind near plane - cull entirely
+	if (z0 < nearPlane && z1 < nearPlane) {
+		return false;
 	}
-	vertex screenStart = toScreen(copyStart);
-	vertex screenEnd = toScreen(copyEnd);
+	
+	// Both in front - no clipping needed
+	if (z0 >= nearPlane && z1 >= nearPlane) {
+		return true;
+	}
+	
+	// One is in front, one behind - clip
+	float t = (nearPlane - z0) / (z1 - z0);
+	
+	if (z0 < nearPlane) {
+		// v0 is behind, clip it
+		v0.pos.x = v0.pos.x + t * (v1.pos.x - v0.pos.x);
+		v0.pos.y = v0.pos.y + t * (v1.pos.y - v0.pos.y);
+		v0.pos.z = nearPlane;
+	} else {
+		// v1 is behind, clip it
+		v1.pos.x = v0.pos.x + t * (v1.pos.x - v0.pos.x);
+		v1.pos.y = v0.pos.y + t * (v1.pos.y - v0.pos.y);
+		v1.pos.z = nearPlane;
+	}
+	
+	return true;
+}
+
+void drawLine(const vertex& Start, const vertex& End, unsigned color) {
+	vertex v0 = Start;
+	vertex v1 = End;
+	
+	// Transform to world space then view space
+	v0.pos = matrixMultiplicationVec(SV_WorldMatrix, v0.pos);
+	v0.pos = matrixMultiplicationVec(SV_ViewMatrix, v0.pos);
+	v1.pos = matrixMultiplicationVec(SV_WorldMatrix, v1.pos);
+	v1.pos = matrixMultiplicationVec(SV_ViewMatrix, v1.pos);
+	
+	// Clip against near plane in view space
+	if (!clipLineNearPlane(v0, v1, SV_NearPlane)) {
+		return; // Line is entirely behind camera
+	}
+	
+	// Project to clip space
+	v0.pos = matrixMultiplicationVec(SV_ProjectionMatrix, v0.pos);
+	v1.pos = matrixMultiplicationVec(SV_ProjectionMatrix, v1.pos);
+	
+	// Perspective divide
+	if (v0.pos.w > 0.001f) {
+		v0.pos.x /= v0.pos.w;
+		v0.pos.y /= v0.pos.w;
+		v0.pos.z /= v0.pos.w;
+	}
+	if (v1.pos.w > 0.001f) {
+		v1.pos.x /= v1.pos.w;
+		v1.pos.y /= v1.pos.w;
+		v1.pos.z /= v1.pos.w;
+	}
+	
+	// Convert to screen space
+	vertex screenStart = toScreen(v0);
+	vertex screenEnd = toScreen(v1);
+	
+	// Apply pixel shader if set
 	Pixel copyColor;
 	copyColor.color = color;
 	if (PixelShader) {
 		PixelShader(copyColor);
 	}
+	
 	LineDrawer(screenStart, screenEnd, copyColor.color);
 }
 
@@ -276,17 +349,6 @@ void DrawTriangle(vertex& v0, vertex& v1, vertex& v2, const unsigned* texture, i
 	vertex screen_v0 = toScreen(copy_v0);
 	vertex screen_v1 = toScreen(copy_v1);
 	vertex screen_v2 = toScreen(copy_v2);
-	
-	// Backface culling: calculate signed area in screen space
-	float edge1x = screen_v1.pos.x - screen_v0.pos.x;
-	float edge1y = screen_v1.pos.y - screen_v0.pos.y;
-	float edge2x = screen_v2.pos.x - screen_v0.pos.x;
-	float edge2y = screen_v2.pos.y - screen_v0.pos.y;
-	float signedArea = edge1x * edge2y - edge1y * edge2x;
-	
-	// Cull back-facing triangles (positive signed area = back-facing with our winding)
-	if (signedArea >= 0.0f) return;
-	
 	fillTriangle(screen_v0, screen_v1, screen_v2, texture, texWidth, texHeight);
 }
 
