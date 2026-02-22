@@ -269,7 +269,7 @@ public:
             if (!triangles.empty()) {
                 glBufferData(GL_SHADER_STORAGE_BUFFER, triangles.size() * sizeof(GPUVertex), triangles.data(), GL_DYNAMIC_DRAW);
             } else {
-                glBufferData(GL_SHADER_STORAGE_BUFFER, 4, nullptr, GL_DYNAMIC_DRAW);
+                glBufferData(GL_SHADER_STORAGE_BUFFER, 0, nullptr, GL_DYNAMIC_DRAW);
             }
 
             if (includeLines && !lineData.empty()) {
