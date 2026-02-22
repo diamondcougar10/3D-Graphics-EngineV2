@@ -7,13 +7,19 @@
 #include <string>
 #include <vector>
 #include <iostream>
-
 // GPU Vertex structure matching the compute shader
 struct GPUVertex {
     float x, y, z, w;  // position
     unsigned int color;
     float u, v;
     float pad;
+};
+
+struct TextureBatch {
+    const unsigned int* textureData = nullptr;
+    int width = 0;
+    int height = 0;
+    std::vector<GPUVertex> triangles;
 };
 
 class GLCompute {
@@ -33,8 +39,14 @@ private:
     int texW = 0, texH = 0;
     bool initialized = false;
     bool useTexture = false;
-    
-    std::vector<GPUVertex> triangleData;
+    bool uvDebug = false;
+    bool textureUploadedThisFrame = false;
+    int texturedTrianglesThisFrame = 0;
+    int solidTrianglesThisFrame = 0;
+
+    std::vector<GPUVertex> solidTriangleData;
+    std::vector<TextureBatch> texturedBatches;
+    TextureBatch* activeTextureBatch = nullptr;
     std::vector<GPUVertex> lineData;
 
 public:
@@ -153,18 +165,35 @@ public:
     
     // Clear for new frame
     void beginFrame() {
-        triangleData.clear();
+        solidTriangleData.clear();
+        texturedBatches.clear();
+        activeTextureBatch = nullptr;
         lineData.clear();
+        textureUploadedThisFrame = false;
+        texturedTrianglesThisFrame = 0;
+        solidTrianglesThisFrame = 0;
     }
     
     // Upload texture data (BGRA format)
     void uploadTexture(const unsigned int* textureData, int width, int height) {
         if (!initialized) return;
+        if (!textureData || width <= 0 || height <= 0) {
+            return;
+        }
         texW = width;
         texH = height;
-        glBindBuffer(GL_SHADER_STORAGE_BUFFER, textureBuffer);
-        glBufferData(GL_SHADER_STORAGE_BUFFER, width * height * sizeof(unsigned int), textureData, GL_STATIC_DRAW);
+        textureUploadedThisFrame = true;
         useTexture = true;
+
+        for (auto& batch : texturedBatches) {
+            if (batch.textureData == textureData && batch.width == width && batch.height == height) {
+                activeTextureBatch = &batch;
+                return;
+            }
+        }
+
+        texturedBatches.push_back(TextureBatch{ textureData, width, height, {} });
+        activeTextureBatch = &texturedBatches.back();
     }
     
     // Enable/disable texture sampling (call before adding triangles)
@@ -176,18 +205,25 @@ public:
     void addTriangle(float x0, float y0, float z0, unsigned int c0,
                      float x1, float y1, float z1, unsigned int c1,
                      float x2, float y2, float z2, unsigned int c2) {
-        triangleData.push_back({x0, y0, z0, 1.0f, c0, 0, 0, 0.0f});  // pad=0 = solid color
-        triangleData.push_back({x1, y1, z1, 1.0f, c1, 0, 0, 0.0f});
-        triangleData.push_back({x2, y2, z2, 1.0f, c2, 0, 0, 0.0f});
+        solidTriangleData.push_back({x0, y0, z0, 1.0f, c0, 0, 0, 0.0f});  // pad=0 = solid color
+        solidTriangleData.push_back({x1, y1, z1, 1.0f, c1, 0, 0, 0.0f});
+        solidTriangleData.push_back({x2, y2, z2, 1.0f, c2, 0, 0, 0.0f});
+        solidTrianglesThisFrame++;
     }
     
     // Add a textured triangle (screen-space vertices with UVs) - pad=1 means TEXTURED
     void addTexturedTriangle(float x0, float y0, float z0, unsigned int c0, float u0, float v0,
                               float x1, float y1, float z1, unsigned int c1, float u1, float v1,
                               float x2, float y2, float z2, unsigned int c2, float u2, float v2) {
-        triangleData.push_back({x0, y0, z0, 1.0f, c0, u0, v0, 1.0f});  // pad=1 = textured
-        triangleData.push_back({x1, y1, z1, 1.0f, c1, u1, v1, 1.0f});
-        triangleData.push_back({x2, y2, z2, 1.0f, c2, u2, v2, 1.0f});
+        if (!activeTextureBatch) {
+            addTriangle(x0, y0, z0, c0, x1, y1, z1, c1, x2, y2, z2, c2);
+            return;
+        }
+
+        activeTextureBatch->triangles.push_back({x0, y0, z0, 1.0f, c0, u0, v0, 1.0f});  // pad=1 = textured
+        activeTextureBatch->triangles.push_back({x1, y1, z1, 1.0f, c1, u1, v1, 1.0f});
+        activeTextureBatch->triangles.push_back({x2, y2, z2, 1.0f, c2, u2, v2, 1.0f});
+        texturedTrianglesThisFrame++;
     }
     
     // Add a line (screen-space vertices)
@@ -201,16 +237,13 @@ public:
     void dispatch(unsigned int* outputPixels) {
         if (!initialized) return;
         
-        // Reset depth buffer
+        // Reset depth + pixel buffers
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, depthBuffer);
         std::vector<float> depthReset(NUM_PIXELS, 1000000.0f);
         glBufferData(GL_SHADER_STORAGE_BUFFER, NUM_PIXELS * sizeof(float), depthReset.data(), GL_DYNAMIC_DRAW);
-        
-        // Upload triangle data
-        if (!triangleData.empty()) {
-            glBindBuffer(GL_SHADER_STORAGE_BUFFER, triangleBuffer);
-            glBufferData(GL_SHADER_STORAGE_BUFFER, triangleData.size() * sizeof(GPUVertex), triangleData.data(), GL_DYNAMIC_DRAW);
-        }
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, pixelBuffer);
+        std::vector<unsigned int> pixelReset(NUM_PIXELS, 0);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, NUM_PIXELS * sizeof(unsigned int), pixelReset.data(), GL_DYNAMIC_DRAW);
         
         // Upload line data
         if (!lineData.empty()) {
@@ -229,19 +262,44 @@ public:
         glUseProgram(computeProgram);
         glUniform1i(glGetUniformLocation(computeProgram, "screenWidth"), width);
         glUniform1i(glGetUniformLocation(computeProgram, "screenHeight"), height);
-        glUniform1i(glGetUniformLocation(computeProgram, "numTriangles"), (int)(triangleData.size() / 3));
-        glUniform1i(glGetUniformLocation(computeProgram, "numLines"), (int)(lineData.size() / 2));
-        glUniform1i(glGetUniformLocation(computeProgram, "texWidth"), texW);
-        glUniform1i(glGetUniformLocation(computeProgram, "texHeight"), texH);
-        glUniform1i(glGetUniformLocation(computeProgram, "useTexture"), useTexture ? 1 : 0);
-        
-        // Dispatch compute shader
-        GLuint groupsX = (width + 15) / 16;
-        GLuint groupsY = (height + 15) / 16;
-        glDispatchCompute(groupsX, groupsY, 1);
-        
-        // Wait for completion
-        glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+        glUniform1i(glGetUniformLocation(computeProgram, "uvDebug"), uvDebug ? 1 : 0);
+
+        auto dispatchTriangles = [&](const std::vector<GPUVertex>& triangles, int tw, int th, bool passUseTexture, bool includeLines) {
+            glBindBuffer(GL_SHADER_STORAGE_BUFFER, triangleBuffer);
+            if (!triangles.empty()) {
+                glBufferData(GL_SHADER_STORAGE_BUFFER, triangles.size() * sizeof(GPUVertex), triangles.data(), GL_DYNAMIC_DRAW);
+            } else {
+                glBufferData(GL_SHADER_STORAGE_BUFFER, 4, nullptr, GL_DYNAMIC_DRAW);
+            }
+
+            if (includeLines && !lineData.empty()) {
+                glBindBuffer(GL_SHADER_STORAGE_BUFFER, lineBuffer);
+                glBufferData(GL_SHADER_STORAGE_BUFFER, lineData.size() * sizeof(GPUVertex), lineData.data(), GL_DYNAMIC_DRAW);
+            } else {
+                glBindBuffer(GL_SHADER_STORAGE_BUFFER, lineBuffer);
+                glBufferData(GL_SHADER_STORAGE_BUFFER, 4, nullptr, GL_DYNAMIC_DRAW);
+            }
+
+            glUniform1i(glGetUniformLocation(computeProgram, "numTriangles"), (int)(triangles.size() / 3));
+            glUniform1i(glGetUniformLocation(computeProgram, "numLines"), includeLines ? (int)(lineData.size() / 2) : 0);
+            glUniform1i(glGetUniformLocation(computeProgram, "texWidth"), tw);
+            glUniform1i(glGetUniformLocation(computeProgram, "texHeight"), th);
+            glUniform1i(glGetUniformLocation(computeProgram, "useTexture"), passUseTexture ? 1 : 0);
+
+            GLuint groupsX = (width + 15) / 16;
+            GLuint groupsY = (height + 15) / 16;
+            glDispatchCompute(groupsX, groupsY, 1);
+            glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+        };
+
+        for (const auto& batch : texturedBatches) {
+            if (batch.triangles.empty()) continue;
+            glBindBuffer(GL_SHADER_STORAGE_BUFFER, textureBuffer);
+            glBufferData(GL_SHADER_STORAGE_BUFFER, batch.width * batch.height * sizeof(unsigned int), batch.textureData, GL_STATIC_DRAW);
+            dispatchTriangles(batch.triangles, batch.width, batch.height, true, false);
+        }
+
+        dispatchTriangles(solidTriangleData, 0, 0, false, true);
         
         // Read back pixel data
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, pixelBuffer);
@@ -249,6 +307,12 @@ public:
     }
     
     bool isInitialized() const { return initialized; }
+    void setUVTextureDebug(bool enabled) { uvDebug = enabled; }
+    int getTextureWidth() const { return texW; }
+    int getTextureHeight() const { return texH; }
+    bool didUploadTextureThisFrame() const { return textureUploadedThisFrame; }
+    int getTexturedTriangleCountThisFrame() const { return texturedTrianglesThisFrame; }
+    int getSolidTriangleCountThisFrame() const { return solidTrianglesThisFrame; }
 
 private:
     bool loadComputeShader(const char* filepath) {

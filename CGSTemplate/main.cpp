@@ -641,6 +641,7 @@ int main() {
     float cubeColorRGB[3] = { 0.27f, 0.27f, 1.0f }; // Cube color (blue)
     bool showSettingsPanel = true;
     bool autoRotateCube = true;
+    bool uvDebugMode = false;
 
     float timeElapsed = 0;
     cube.wy += 0.25;
@@ -865,19 +866,31 @@ int main() {
                         g_LoadedModels[selectedModel]->setScale(modelScale);
                     }
                     
+                    ImGui::TextWrapped("Texture: %s", g_LoadedModels[selectedModel]->getPrimaryTexturePath().c_str());
+
                     // Delete button
                     if (ImGui::Button("Delete Model")) {
                         g_LoadedModels.erase(g_LoadedModels.begin() + selectedModel);
                         selectedModel = -1;
                     }
                 }
-                
+
                 ImGui::Separator();
-                
+                ImGui::Checkbox("UV Debug", &uvDebugMode);
+
+                if (useGPU) {
+                    ImGui::Text("GPU Texture: %dx%d", g_GLCompute.getTextureWidth(), g_GLCompute.getTextureHeight());
+                    ImGui::Text("Texture Upload This Frame: %s", g_GLCompute.didUploadTextureThisFrame() ? "Yes" : "No");
+                    ImGui::Text("Textured Triangles: %d", g_GLCompute.getTexturedTriangleCountThisFrame());
+                    ImGui::Text("Solid Triangles: %d", g_GLCompute.getSolidTriangleCountThisFrame());
+                }
+
+                ImGui::Separator();
+
                 // Camera Info
                 ImGui::Text("Camera Position: %.2f, %.2f, %.2f", camX, camY, camZ);
                 ImGui::Text("Camera Rotation: Yaw=%.1f Pitch=%.1f", camYaw, camPitch);
-                
+
                 ImGui::Separator();
                 ImGui::Text("FPS: %.1f", 1.0f / deltaTime);
             }
@@ -889,6 +902,7 @@ int main() {
 
         if (useGPU) {
             // ===== GPU RENDERING PATH =====
+            g_GLCompute.setUVTextureDebug(uvDebugMode);
             GPU_BeginFrame();
             
             // Draw grid lines (large grid for exploration)

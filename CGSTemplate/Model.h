@@ -33,7 +33,7 @@ private:
     
     void processNode(aiNode* node, const aiScene* scene);
     MaterialMesh* processMesh(aiMesh* mesh, const aiScene* scene);
-    ModelTexture* loadTexture(const std::string& path);
+    ModelTexture* loadTexture(const std::string& path, const aiScene* scene = nullptr);
     
 public:
     Model() : Object() {}
@@ -49,6 +49,9 @@ public:
     
     // Get mesh count
     size_t getMeshCount() const { return meshes.size(); }
+    const std::string getPrimaryTexturePath() const {
+        return loadedTextures.empty() ? std::string("[none]") : loadedTextures.front().path;
+    }
     
     // Get total triangle count
     size_t getTotalTriangles() const {
@@ -72,6 +75,8 @@ inline bool Model::loadModel(const std::string& path) {
     const aiScene* scene = importer.ReadFile(path,
         aiProcess_Triangulate |
         aiProcess_FlipUVs |
+        aiProcess_ConvertToLeftHanded |
+        aiProcess_PreTransformVertices |
         aiProcess_GenNormals |
         aiProcess_CalcTangentSpace |
         aiProcess_JoinIdenticalVertices);
@@ -161,13 +166,23 @@ inline MaterialMesh* Model::processMesh(aiMesh* mesh, const aiScene* scene) {
     if (mesh->mMaterialIndex >= 0) {
         aiMaterial* material = scene->mMaterials[mesh->mMaterialIndex];
         
-        // Try to load diffuse texture
-        if (material->GetTextureCount(aiTextureType_DIFFUSE) > 0) {
+        // Try BASE_COLOR first, then fallback to DIFFUSE
+        aiTextureType texType = aiTextureType_BASE_COLOR;
+        if (material->GetTextureCount(texType) == 0) {
+            texType = aiTextureType_DIFFUSE;
+        }
+
+        if (material->GetTextureCount(texType) > 0) {
             aiString texPath;
-            material->GetTexture(aiTextureType_DIFFUSE, 0, &texPath);
+            material->GetTexture(texType, 0, &texPath);
             
-            std::string fullPath = directory + "/" + texPath.C_Str();
-            ModelTexture* tex = loadTexture(fullPath);
+            std::string textureRef = texPath.C_Str();
+            std::string fullPath = textureRef;
+            if (!textureRef.empty() && textureRef[0] != '*') {
+                fullPath = directory + "/" + textureRef;
+            }
+
+            ModelTexture* tex = loadTexture(fullPath, scene);
             
             if (tex && !tex->pixels.empty()) {
                 matMesh->setTexture(tex->pixels.data(), tex->width, tex->height);
@@ -185,7 +200,7 @@ inline MaterialMesh* Model::processMesh(aiMesh* mesh, const aiScene* scene) {
     return matMesh;
 }
 
-inline ModelTexture* Model::loadTexture(const std::string& path) {
+inline ModelTexture* Model::loadTexture(const std::string& path, const aiScene* scene) {
     // Check if already loaded
     for (auto& tex : loadedTextures) {
         if (tex.path == path) {
@@ -198,17 +213,40 @@ inline ModelTexture* Model::loadTexture(const std::string& path) {
     newTex.path = path;
     
     int channels;
-    unsigned char* data = stbi_load(path.c_str(), &newTex.width, &newTex.height, &channels, 4);
+    unsigned char* data = nullptr;
+
+    if (!path.empty() && path[0] == '*' && scene) {
+        const aiTexture* embedded = scene->GetEmbeddedTexture(path.c_str());
+        if (embedded) {
+            if (embedded->mHeight == 0) {
+                data = stbi_load_from_memory(reinterpret_cast<const stbi_uc*>(embedded->pcData),
+                    static_cast<int>(embedded->mWidth), &newTex.width, &newTex.height, &channels, 4);
+            } else {
+                newTex.width = static_cast<int>(embedded->mWidth);
+                newTex.height = static_cast<int>(embedded->mHeight);
+                newTex.pixels.resize(newTex.width * newTex.height);
+                for (int i = 0; i < newTex.width * newTex.height; ++i) {
+                    const aiTexel& t = embedded->pcData[i];
+                    newTex.pixels[i] = (static_cast<unsigned int>(t.a) << 24) |
+                                       (static_cast<unsigned int>(t.r) << 16) |
+                                       (static_cast<unsigned int>(t.g) << 8) |
+                                       static_cast<unsigned int>(t.b);
+                }
+            }
+        }
+    } else {
+        data = stbi_load(path.c_str(), &newTex.width, &newTex.height, &channels, 4);
+    }
     
     if (data) {
-        // Convert RGBA to BGRA
+        // Convert RGBA bytes to packed ARGB uint32 (0xAARRGGBB)
         newTex.pixels.resize(newTex.width * newTex.height);
         for (int i = 0; i < newTex.width * newTex.height; i++) {
             unsigned char r = data[i * 4 + 0];
             unsigned char g = data[i * 4 + 1];
             unsigned char b = data[i * 4 + 2];
             unsigned char a = data[i * 4 + 3];
-            newTex.pixels[i] = (a << 24) | (r << 16) | (g << 8) | b;  // ARGB/BGRA
+            newTex.pixels[i] = (a << 24) | (r << 16) | (g << 8) | b;
         }
         stbi_image_free(data);
         
