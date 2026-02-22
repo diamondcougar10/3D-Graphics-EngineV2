@@ -143,16 +143,8 @@ unsigned sampleTexture(const unsigned* texture, int texWidth, int texHeight, flo
 	int x = static_cast<int>(u * (texWidth - 1));
 	int y = static_cast<int>(v * (texHeight - 1));
 
-	// Sample color from texture (BGRA format)
-	unsigned int bgra = texture[y * texWidth + x];
-	
-	// Convert BGRA to ARGB
-	unsigned int b = (bgra >> 16) & 0xFF;
-	unsigned int g = (bgra >> 8) & 0xFF;
-	unsigned int r = bgra & 0xFF;
-	unsigned int a = (bgra >> 24) & 0xFF;
-	
-	return (a << 24) | (r << 16) | (g << 8) | b;
+	// Sample color from texture (ARGB format)
+	return texture[y * texWidth + x];
 }
 
 // Global lighting factor for current triangle (set by DrawTriangle)

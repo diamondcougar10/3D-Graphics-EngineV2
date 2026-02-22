@@ -93,9 +93,9 @@ public:
         int tw = useTexture ? (texture ? texWidth : g_RenderCallbacks.texWidth) : 0;
         int th = useTexture ? (texture ? texHeight : g_RenderCallbacks.texHeight) : 0;
         
-        // If using GPU and this object has its own texture, upload it
-        if (g_RenderCallbacks.useGPU && useTexture && texture && g_RenderCallbacks.uploadTextureGPU) {
-            g_RenderCallbacks.uploadTextureGPU(texture, texWidth, texHeight);
+        // If using GPU and this mesh is textured, upload active texture before submitting triangles
+        if (g_RenderCallbacks.useGPU && useTexture && tex && g_RenderCallbacks.uploadTextureGPU) {
+            g_RenderCallbacks.uploadTextureGPU(tex, tw, th);
         }
         
         // Render each triangle
